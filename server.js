@@ -1,0 +1,521 @@
+import 'dotenv/config'
+import express from 'express'
+import cors from 'cors'
+import { VertexAI } from '@google-cloud/vertexai'
+import {
+  BedrockRuntimeClient,
+  InvokeModelCommand,
+  ConverseCommand,
+} from '@aws-sdk/client-bedrock-runtime'
+import {
+  BedrockClient,
+  ListFoundationModelsCommand,
+} from '@aws-sdk/client-bedrock'
+
+const app = express()
+app.use(cors())
+app.use(express.json())
+
+const PORT = process.env.PROXY_PORT || 3001
+
+// ─── Known Vertex AI publisher models ────────────────────────────────────────
+const VERTEX_MODELS = [
+  { id: 'gemini-2.0-flash-001',      label: 'Gemini 2.0 Flash',       status: 'available' },
+  { id: 'gemini-2.0-flash-lite-001', label: 'Gemini 2.0 Flash Lite',  status: 'available' },
+  { id: 'gemini-2.0-pro-exp-02-05',  label: 'Gemini 2.0 Pro (Exp)',   status: 'experimental' },
+  { id: 'gemini-1.5-pro',            label: 'Gemini 1.5 Pro',         status: 'available' },
+  { id: 'gemini-1.5-flash',          label: 'Gemini 1.5 Flash',       status: 'available' },
+  { id: 'gemini-1.5-flash-8b',       label: 'Gemini 1.5 Flash 8B',   status: 'available' },
+]
+
+// ─── AWS credential helper ────────────────────────────────────────────────────
+function awsCredentials() {
+  const creds = {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  }
+  if (process.env.AWS_SESSION_TOKEN) creds.sessionToken = process.env.AWS_SESSION_TOKEN
+  return creds
+}
+
+// ─── AIRS scan helper ─────────────────────────────────────────────────────────
+async function airscan(prompt, response = null, model = 'unknown') {
+  const body = {
+    tr_id: `citadel-${Date.now()}`,
+    ai_profile: { profile_name: process.env.AIRS_PROFILE_NAME },
+    metadata: { app_name: 'SUDO AIRS Demo', ai_model: model, app_user: 'demo-user' },
+    contents: [{ prompt, ...(response != null ? { response } : {}) }],
+  }
+
+  const t0 = Date.now()
+  const res = await fetch(
+    `${process.env.AIRS_BASE_URL}/v1/scan/sync/request`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'x-pan-token': process.env.AIRS_API_KEY,
+      },
+      body: JSON.stringify(body),
+    }
+  )
+
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`AIRS scan failed (${res.status}): ${text}`)
+  }
+
+  const data = await res.json()
+  return { data, latencyMs: Date.now() - t0, requestBody: body }
+}
+
+// ─── Vertex AI helper ─────────────────────────────────────────────────────────
+const vertexAI = new VertexAI({
+  project: process.env.GCP_PROJECT_ID,
+  location: process.env.GCP_REGION || 'us-central1',
+})
+
+async function callVertexAI(prompt, modelId) {
+  const genModel = vertexAI.getGenerativeModel({ model: modelId })
+  const t0 = Date.now()
+  const result = await genModel.generateContent(prompt)
+  const latencyMs = Date.now() - t0
+  const candidate = result.response?.candidates?.[0]
+  const text = candidate?.content?.parts?.map(p => p.text).join('') ?? ''
+  const usage = result.response?.usageMetadata ?? {}
+  return {
+    text,
+    latencyMs,
+    tokens: {
+      input:  usage.promptTokenCount      ?? null,
+      output: usage.candidatesTokenCount  ?? null,
+      total:  usage.totalTokenCount       ?? null,
+    },
+    finishReason: candidate?.finishReason ?? null,
+  }
+}
+
+// ─── Bedrock helper ───────────────────────────────────────────────────────────
+function makeBedrockRuntime() {
+  return new BedrockRuntimeClient({
+    region: process.env.AWS_REGION || 'us-east-1',
+    credentials: awsCredentials(),
+  })
+}
+
+async function callBedrock(prompt, modelId) {
+  const client = makeBedrockRuntime()
+  const t0 = Date.now()
+
+  // ConverseCommand is the universal Bedrock API — works across all model families
+  // and is required for cross-region inference profiles.
+  // For newer models needing inference profiles, auto-retry with us. prefix.
+  const candidateIds = [modelId]
+  if (!modelId.startsWith('us.') && !modelId.startsWith('eu.')) {
+    candidateIds.push(`us.${modelId}`)
+  }
+
+  let lastErr
+  for (const id of candidateIds) {
+    try {
+      const cmd = new ConverseCommand({
+        modelId: id,
+        messages: [{ role: 'user', content: [{ text: prompt }] }],
+        inferenceConfig: { maxTokens: 1024 },
+      })
+      const response = await client.send(cmd)
+      const latencyMs = Date.now() - t0
+      const text = response.output?.message?.content?.[0]?.text ?? ''
+      const usage = response.usage ?? {}
+      if (id !== modelId) console.log(`[Bedrock] Auto-retried with inference profile: ${id}`)
+      return {
+        text,
+        latencyMs,
+        tokens: {
+          input:  usage.inputTokens  ?? null,
+          output: usage.outputTokens ?? null,
+          total:  (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0) || null,
+        },
+        finishReason: response.stopReason ?? null,
+      }
+    } catch (err) {
+      lastErr = err
+      // Only retry on inference-profile errors; surface everything else immediately
+      if (!err.message?.includes('on-demand throughput')) throw err
+    }
+  }
+  throw lastErr
+}
+
+// ─── Build full telemetry payload — raw AIRS data preserved ──────────────────
+function buildTelemetry({ airsPromptScan, airsResponseScan, llmLatencyMs, modelLabel, llmText, llmTokens, llmFinishReason }) {
+  const decidingScan = airsResponseScan ?? airsPromptScan
+  const isBlocked = decidingScan.data.action === 'block'
+
+  const promptDetected = airsPromptScan.data.prompt_detected ?? {}
+  const responseDetected = airsResponseScan?.data.response_detected ?? {}
+  const activeThreats = Object.entries(promptDetected).filter(([, v]) => v).map(([k]) => k)
+
+  return {
+    // ── Summary ──────────────────────────────────────────────────────────────
+    summary: {
+      verdict: isBlocked ? 'BLOCKED' : 'ALLOWED',
+      action: decidingScan.data.action,
+      category: decidingScan.data.category,
+      threats_detected: activeThreats,
+      model: modelLabel,
+      profile: process.env.AIRS_PROFILE_NAME,
+    },
+
+    // ── Input scan (prompt) — full raw AIRS payload ───────────────────────
+    inputScan: {
+      scan_id:    airsPromptScan.data.scan_id,
+      report_id:  airsPromptScan.data.report_id,
+      tr_id:      airsPromptScan.data.tr_id,
+      session_id: airsPromptScan.data.session_id ?? null,
+      profile_id: airsPromptScan.data.profile_id,
+      profile_name: airsPromptScan.data.profile_name,
+      category:   airsPromptScan.data.category,
+      action:     airsPromptScan.data.action,
+      timeout:    airsPromptScan.data.timeout,
+      error:      airsPromptScan.data.error,
+      created_at:   airsPromptScan.data.created_at,
+      completed_at: airsPromptScan.data.completed_at,
+      latency_ms:   airsPromptScan.latencyMs,
+      prompt_detected: promptDetected,
+      prompt_masked_data:        airsPromptScan.data.prompt_masked_data ?? null,
+      prompt_detection_details:  airsPromptScan.data.prompt_detection_details ?? null,
+    },
+
+    // ── Output scan (response) — full raw AIRS payload ────────────────────
+    outputScan: airsResponseScan ? {
+      scan_id:    airsResponseScan.data.scan_id,
+      report_id:  airsResponseScan.data.report_id,
+      tr_id:      airsResponseScan.data.tr_id,
+      session_id: airsResponseScan.data.session_id ?? null,
+      profile_id: airsResponseScan.data.profile_id,
+      profile_name: airsResponseScan.data.profile_name,
+      category:   airsResponseScan.data.category,
+      action:     airsResponseScan.data.action,
+      timeout:    airsResponseScan.data.timeout,
+      error:      airsResponseScan.data.error,
+      created_at:   airsResponseScan.data.created_at,
+      completed_at: airsResponseScan.data.completed_at,
+      latency_ms:   airsResponseScan.latencyMs,
+      response_detected: responseDetected,
+      response_masked_data:       airsResponseScan.data.response_masked_data ?? null,
+      response_detection_details: airsResponseScan.data.response_detection_details ?? null,
+    } : null,
+
+    // ── Timing & LLM stats ────────────────────────────────────────────────
+    timing: {
+      airs_input_scan_ms:  airsPromptScan.latencyMs,
+      llm_ms:              llmLatencyMs ?? null,
+      airs_output_scan_ms: airsResponseScan?.latencyMs ?? null,
+      total_ms: airsPromptScan.latencyMs + (llmLatencyMs ?? 0) + (airsResponseScan?.latencyMs ?? 0),
+    },
+    llm: {
+      model:        modelLabel,
+      latency_ms:   llmLatencyMs ?? null,
+      tokens_in:    llmTokens?.input  ?? null,
+      tokens_out:   llmTokens?.output ?? null,
+      tokens_total: llmTokens?.total  ?? null,
+      throughput_tps: (llmTokens?.output && llmLatencyMs)
+        ? Math.round((llmTokens.output / llmLatencyMs) * 1000)
+        : null,
+      finish_reason: llmFinishReason ?? null,
+    },
+
+    // ── Chat response ────────────────────────────────────────────────────
+    chatResponse: {
+      role: 'assistant',
+      content: isBlocked ? null : llmText,
+      blocked: isBlocked,
+      block_reason: isBlocked
+        ? `Blocked by Prisma AIRS.`
+        : null,
+    },
+  }
+}
+
+// ─── POST /api/chat ───────────────────────────────────────────────────────────
+app.post('/api/chat', async (req, res) => {
+  const { message, backend = 'vertex', modelId, airsEnabled = false } = req.body
+  if (!message) return res.status(400).json({ error: 'message is required' })
+
+  const resolvedModelId = modelId || (
+    backend === 'vertex' ? process.env.VERTEX_MODEL : process.env.BEDROCK_MODEL_ID
+  )
+  const modelLabel = `${backend}/${resolvedModelId}`
+
+  console.log(`[chat] airsEnabled=${airsEnabled} backend=${backend} model=${resolvedModelId}`)
+
+  // ── UNPROTECTED: straight to LLM, no AIRS ────────────────────────────────
+  if (!airsEnabled) {
+    console.log(`[LLM] Unprotected — calling ${modelLabel} directly…`)
+    try {
+      const r = backend === 'vertex'
+        ? await callVertexAI(message, resolvedModelId)
+        : await callBedrock(message, resolvedModelId)
+      console.log(`[LLM] Response received (${r.latencyMs}ms, ${r.tokens?.total ?? '?'} tokens) — no AIRS scan`)
+      return res.json({
+        summary: null,
+        inputScan: null,
+        outputScan: null,
+        timing: { llm_ms: r.latencyMs, airs_input_scan_ms: null, airs_output_scan_ms: null, total_ms: r.latencyMs },
+        llm: {
+          model: modelLabel,
+          latency_ms: r.latencyMs,
+          tokens_in: r.tokens?.input ?? null,
+          tokens_out: r.tokens?.output ?? null,
+          tokens_total: r.tokens?.total ?? null,
+          throughput_tps: (r.tokens?.output && r.latencyMs)
+            ? Math.round((r.tokens.output / r.latencyMs) * 1000) : null,
+          finish_reason: r.finishReason ?? null,
+        },
+        chatResponse: { role: 'assistant', content: r.text, blocked: false, block_reason: null },
+      })
+    } catch (err) {
+      console.error('[LLM] Error:', err.message)
+      return res.status(502).json({ error: `LLM call failed: ${err.message}` })
+    }
+  }
+
+  // ── PROTECTED: AIRS scan → LLM → AIRS scan ───────────────────────────────
+  try {
+    // Step 1: AIRS scan the prompt
+    console.log(`[AIRS] Scanning prompt via profile "${process.env.AIRS_PROFILE_NAME}"…`)
+    const airsPromptScan = await airscan(message, null, modelLabel)
+    console.log(`[AIRS] Prompt verdict: ${airsPromptScan.data.action} / ${airsPromptScan.data.category}`)
+
+    if (airsPromptScan.data.action === 'block') {
+      return res.json(buildTelemetry({ airsPromptScan, airsResponseScan: null, llmLatencyMs: null, modelLabel, llmText: null, llmTokens: null, llmFinishReason: null }))
+    }
+
+    // Step 2: Call LLM
+    let llmText = '', llmLatencyMs = 0, llmTokens = null, llmFinishReason = null
+    try {
+      console.log(`[LLM] Calling ${modelLabel}…`)
+      if (backend === 'vertex') {
+        const r = await callVertexAI(message, resolvedModelId)
+        llmText = r.text; llmLatencyMs = r.latencyMs; llmTokens = r.tokens; llmFinishReason = r.finishReason
+      } else {
+        const r = await callBedrock(message, resolvedModelId)
+        llmText = r.text; llmLatencyMs = r.latencyMs; llmTokens = r.tokens; llmFinishReason = r.finishReason
+        llmText = r.text; llmLatencyMs = r.latencyMs
+      }
+      console.log(`[LLM] Response received (${llmLatencyMs}ms)`)
+    } catch (err) {
+      console.error('[LLM] Error:', err.message)
+      return res.status(502).json({ error: `LLM call failed: ${err.message}` })
+    }
+
+    // Step 3: AIRS scan the response
+    console.log('[AIRS] Scanning LLM response…')
+    const airsResponseScan = await airscan(message, llmText, modelLabel)
+    console.log(`[AIRS] Response verdict: ${airsResponseScan.data.action} / ${airsResponseScan.data.category}`)
+
+    return res.json(buildTelemetry({ airsPromptScan, airsResponseScan, llmLatencyMs, modelLabel, llmText, llmTokens, llmFinishReason }))
+  } catch (err) {
+    console.error('[server] Unhandled error:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ─── GET /api/models/vertex ───────────────────────────────────────────────────
+app.get('/api/models/vertex', (_req, res) => {
+  // Return the known publisher model list — no API call needed
+  res.json({
+    provider: 'Google Cloud Vertex AI',
+    project: process.env.GCP_PROJECT_ID,
+    region: process.env.GCP_REGION,
+    models: VERTEX_MODELS,
+  })
+})
+
+// ─── GET /api/models/bedrock ──────────────────────────────────────────────────
+app.get('/api/models/bedrock', async (_req, res) => {
+  try {
+    const client = new BedrockClient({
+      region: process.env.AWS_REGION || 'us-east-1',
+      credentials: awsCredentials(),
+    })
+    const cmd = new ListFoundationModelsCommand({ byOutputModality: 'TEXT' })
+    const result = await client.send(cmd)
+
+    const models = (result.modelSummaries ?? []).map(m => ({
+      id: m.modelId,
+      label: m.modelName,
+      provider: m.providerName,
+      status: m.modelLifecycle?.status === 'ACTIVE' ? 'available' : m.modelLifecycle?.status?.toLowerCase() ?? 'unknown',
+      inputModalities: m.inputModalities ?? [],
+      outputModalities: m.outputModalities ?? [],
+      streamingSupported: m.responseStreamingSupported ?? false,
+    }))
+
+    res.json({ provider: 'AWS Bedrock', region: process.env.AWS_REGION, models })
+  } catch (err) {
+    console.error('[bedrock] ListFoundationModels error:', err.message)
+    res.status(502).json({ error: err.message })
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// RED TEAM API
+// Management plane: https://api.sase.paloaltonetworks.com/ai-red-teaming/mgmt-plane
+// Data plane:       https://api.sase.paloaltonetworks.com/ai-red-teaming/data-plane
+// Auth: OAuth2 Bearer token (reuses MODEL_SECURITY credentials)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const RT_MGMT = 'https://api.sase.paloaltonetworks.com/ai-red-teaming/mgmt-plane'
+const RT_DATA = 'https://api.sase.paloaltonetworks.com/ai-red-teaming/data-plane'
+const _rtToken = { value: null, expiresAt: 0 }
+
+async function getRedTeamToken() {
+  const now = Date.now() / 1000
+  if (_rtToken.value && _rtToken.expiresAt - 60 > now) return _rtToken.value
+
+  const id  = process.env.MODEL_SECURITY_CLIENT_ID
+  const sec = process.env.MODEL_SECURITY_CLIENT_SECRET
+  const tsg = process.env.TSG_ID
+  if (!id || !sec || !tsg) throw new Error('Missing MODEL_SECURITY_CLIENT_ID / CLIENT_SECRET / TSG_ID for Red Team API')
+
+  const res = await fetch('https://auth.apps.paloaltonetworks.com/oauth2/access_token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Authorization: 'Basic ' + Buffer.from(`${id}:${sec}`).toString('base64'),
+    },
+    body: `grant_type=client_credentials&scope=tsg_id:${tsg}`,
+  })
+  if (!res.ok) throw new Error(`Red Team token error (${res.status}): ${await res.text()}`)
+  const d = await res.json()
+  _rtToken.value     = d.access_token
+  _rtToken.expiresAt = now + (d.expires_in || 900)
+  return d.access_token
+}
+
+async function rtFetch(base, path, method = 'GET', body = null, params = {}) {
+  const token = await getRedTeamToken()
+  const qs = Object.keys(params).length ? '?' + new URLSearchParams(params).toString() : ''
+  const res = await fetch(`${base}${path}${qs}`, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  const text = await res.text()
+  let data
+  try { data = JSON.parse(text) } catch { data = { raw: text } }
+  return { status: res.status, data }
+}
+
+// ── Targets ──────────────────────────────────────────────────────────────────
+app.get('/api/redteam/targets', async (req, res) => {
+  try {
+    const { status, data } = await rtFetch(RT_MGMT, '/v1/target', 'GET', null, { limit: 50, skip: 0 })
+    res.status(status).json(data)
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+app.post('/api/redteam/targets', async (req, res) => {
+  try {
+    const { status, data } = await rtFetch(RT_MGMT, '/v1/target', 'POST', req.body, { validate: 'true' })
+    res.status(status).json(data)
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+app.get('/api/redteam/targets/:id', async (req, res) => {
+  try {
+    const { status, data } = await rtFetch(RT_MGMT, `/v1/target/${req.params.id}`)
+    res.status(status).json(data)
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+// ── Jobs ──────────────────────────────────────────────────────────────────────
+app.post('/api/redteam/scan', async (req, res) => {
+  try {
+    const { status, data } = await rtFetch(RT_DATA, '/v1/scan', 'POST', req.body)
+    res.status(status).json(data)
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+app.get('/api/redteam/scan', async (req, res) => {
+  try {
+    const { status, data } = await rtFetch(RT_DATA, '/v1/scan', 'GET', null, { limit: 20, skip: 0 })
+    res.status(status).json(data)
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+app.get('/api/redteam/scan/:id', async (req, res) => {
+  try {
+    const { status, data } = await rtFetch(RT_DATA, `/v1/scan/${req.params.id}`)
+    res.status(status).json(data)
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+app.post('/api/redteam/scan/:id/abort', async (req, res) => {
+  try {
+    const { status, data } = await rtFetch(RT_DATA, `/v1/scan/${req.params.id}/abort`, 'POST')
+    res.status(status).json(data)
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+// ── Reports ───────────────────────────────────────────────────────────────────
+app.get('/api/redteam/scan/:id/report', async (req, res) => {
+  try {
+    const { status, data } = await rtFetch(RT_DATA, `/v1/report/static/${req.params.id}/report`)
+    res.status(status).json(data)
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+app.get('/api/redteam/scan/:id/attacks', async (req, res) => {
+  try {
+    const params = { limit: req.query.limit || 100, skip: req.query.skip || 0 }
+    if (req.query.threat   !== undefined) params.threat   = req.query.threat
+    if (req.query.status   !== undefined) params.status   = req.query.status
+    if (req.query.category !== undefined) params.category = req.query.category
+    if (req.query.sub_category) params.sub_category = req.query.sub_category
+    const { status, data } = await rtFetch(RT_DATA, `/v1/report/static/${req.params.id}/list-attacks`, 'GET', null, params)
+    res.status(status).json(data)
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+// ─── GET /api/scanner/health — check if Python scanner is running ────────────
+app.get('/api/scanner/health', async (_req, res) => {
+  const scannerPort = process.env.MODEL_SCANNER_PORT || 8001
+  try {
+    const r = await fetch(`http://localhost:${scannerPort}/`)
+    res.json({ running: r.ok, port: scannerPort })
+  } catch {
+    res.json({ running: false, port: scannerPort })
+  }
+})
+
+// ─── GET /api/health ─────────────────────────────────────────────────────────
+app.get('/api/health', (_req, res) => {
+  res.json({
+    status: 'ok',
+    airs: { configured: !!process.env.AIRS_API_KEY, profile: process.env.AIRS_PROFILE_NAME },
+    vertex: { project: process.env.GCP_PROJECT_ID, region: process.env.GCP_REGION, model: process.env.VERTEX_MODEL },
+    bedrock: { region: process.env.AWS_REGION, model: process.env.BEDROCK_MODEL_ID, sessionToken: !!process.env.AWS_SESSION_TOKEN },
+    modelScanner: {
+      configured: !!(process.env.MODEL_SECURITY_CLIENT_ID && process.env.MODEL_SECURITY_CLIENT_SECRET && process.env.TSG_ID),
+      localGroupSet: !!process.env.LOCAL_SCAN_GROUP_UUID,
+      hfGroupSet: !!process.env.HF_SCAN_GROUP_UUID,
+    },
+  })
+})
+
+app.listen(PORT, () => {
+  console.log(`\n  ╔══════════════════════════════════════════════╗`)
+  console.log(`  ║  SUDO AIRS Demo  →  http://localhost:${PORT}    ║`)
+  console.log(`  ╠══════════════════════════════════════════════╣`)
+  console.log(`  ║  AIRS profile : ${process.env.AIRS_PROFILE_NAME}`)
+  console.log(`  ║  Vertex AI    : ${process.env.GCP_PROJECT_ID} / ${process.env.VERTEX_MODEL}`)
+  console.log(`  ║  Bedrock      : ${process.env.BEDROCK_MODEL_ID} (${process.env.AWS_REGION})`)
+  if (!process.env.AWS_SESSION_TOKEN) {
+    console.log(`  ║  ⚠  AWS_SESSION_TOKEN not set (ASIA key detected)`)
+  }
+  console.log(`  ╚══════════════════════════════════════════════╝\n`)
+})
