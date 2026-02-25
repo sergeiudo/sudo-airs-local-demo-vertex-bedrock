@@ -1,6 +1,57 @@
 # SUDO AIRS Local Demo — Vertex & Bedrock
 
-A React + Node.js demo of Prisma AIRS (AI Runtime Security) showing prompt/response scanning, model security scanning, and red teaming across Google Vertex AI and AWS Bedrock.
+**Created by Sergei (SUDO) Udovenko, Palo Alto Networks**
+
+An interactive demo that shows how **Prisma AI Runtime Security (AIRS)** protects AI applications from attacks — and what happens when it doesn't. Toggle protection on and off in real time to compare a vulnerable deployment against a secured one, using live LLMs on Google Vertex AI and AWS Bedrock.
+
+![Home screen — three pillars](docs/screenshot-home.png)
+
+![API Intercept — DAN attack blocked by AIRS](docs/screenshot-api-intercept.png)
+
+---
+
+## What This Demo Shows
+
+AI systems face security threats that traditional tools weren't built for: malicious prompts designed to manipulate model behavior, compromised model files distributed through public registries, and adversarial inputs that slowly erode a model's guardrails across a conversation. This demo makes those threats tangible and shows how AIRS addresses each one.
+
+The demo is built around three pillars, each accessible from the home screen:
+
+### Pillar 1 — API Intercept
+
+Simulates real attacks against a live LLM (prompt injection, jailbreaks, data exfiltration attempts) and shows AIRS scanning every request and response in the traffic path.
+
+With **protection on**, AIRS evaluates the prompt before it reaches the model. If the prompt is malicious, it's blocked and the LLM is never called. If it passes, AIRS also scans the model's response before it's returned to the user. The telemetry panel shows the full scan result — verdict, threat category, latency, token counts — and links directly to the transaction in Strata Cloud Manager.
+
+With **protection off**, the same attacks go straight through to the LLM with no inspection. The model's response is returned unfiltered.
+
+The attack library on the left contains curated examples across categories (prompt injection, jailbreak, data exfiltration) that you can fire one-click against Vertex AI (Gemini) or Bedrock (Claude).
+
+### Pillar 2 — Model Scanning
+
+Scans AI model files for embedded threats before they're deployed — malware, backdoors, pickle exploits, and unsafe tensor serialization.
+
+You can submit a model two ways: paste a HuggingFace model URI (e.g. `org/model-name`) or upload a local file. The Prisma AIRS Model Security SDK submits it to a scan group in your tenant and returns a vulnerability report with rule violations and CVE matches.
+
+> Requires Model Security credentials (`bash setup-scanner.sh`). Without them the scanner starts in stub mode and this pillar shows a "not configured" message.
+
+### Pillar 3 — Red Teaming
+
+Runs automated adversarial campaigns across multiple attack categories — DAN variants, role-play escapes, multi-turn manipulation — and tracks how well the model holds up over time via a robustness score gauge.
+
+> The Red Teaming pillar is UI-simulated (no backend calls). Campaign logs and the gauge are generated client-side. This lets it run without additional credentials and keeps the focus on the campaign interface and reporting UX.
+
+---
+
+## How the Toggle Works
+
+The **protection toggle** in the sidebar switches between two modes across the entire app:
+
+| Mode | Behavior | Visual theme |
+|------|----------|-------------|
+| Protected | AIRS scans every prompt and response | Emerald / blue |
+| Unprotected | LLM called directly, no scanning | Red |
+
+The toggle affects both the visual theme and whether AIRS API calls are made. The app never calls cloud services from the browser — all credentials stay on the Express proxy server.
 
 ---
 
