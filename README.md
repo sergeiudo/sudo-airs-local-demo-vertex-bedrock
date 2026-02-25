@@ -57,11 +57,41 @@ The toggle affects both the visual theme and whether AIRS API calls are made. Th
 
 ## Prerequisites
 
+### Tools
+
 | Tool | Version |
 |------|---------|
 | Node.js | 18+ |
 | npm | 9+ |
 | Python | 3.10+ |
+
+### Google Cloud (Vertex AI)
+
+- A GCP project with the **Vertex AI API** enabled
+- Model Garden access for the models you want to use — some models (e.g. Gemini 2.0) require you to request access in the GCP Console under Vertex AI → Model Garden
+- A **service account** with the `Vertex AI User` role, and a downloaded JSON key file. Set the path in `.env`:
+  ```
+  GOOGLE_APPLICATION_CREDENTIALS=/path/to/your-key.json
+  ```
+- **Alternative (no key file):** run `gcloud auth application-default login` and leave `GOOGLE_APPLICATION_CREDENTIALS` unset. Application Default Credentials are picked up automatically.
+
+### AWS (Bedrock)
+
+- An AWS account with **Amazon Bedrock** enabled in your target region, and model access granted for the models you want to use (AWS Console → Bedrock → Model access)
+- IAM credentials with Bedrock permissions (`AmazonBedrockFullAccess` or a scoped equivalent)
+- Two ways to provide credentials — pick one:
+  ```bash
+  # Option A: export in your shell before running npm run dev
+  export AWS_ACCESS_KEY_ID=...
+  export AWS_SECRET_ACCESS_KEY=...
+  export AWS_REGION=us-east-1
+
+  # Option B: add directly to .env
+  AWS_ACCESS_KEY_ID=...
+  AWS_SECRET_ACCESS_KEY=...
+  AWS_REGION=us-east-1
+  ```
+- **STS temporary credentials** (keys starting with `ASIA`) also require `AWS_SESSION_TOKEN` via the same method. Exporting in the shell is recommended since STS tokens expire and you won't need to edit `.env` each time.
 
 ---
 
