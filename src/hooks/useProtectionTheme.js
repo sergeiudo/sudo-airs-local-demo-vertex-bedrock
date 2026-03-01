@@ -51,6 +51,9 @@ export function useProtectionTheme() {
       btnHover: 'hover:bg-emerald-400',
       btnText: 'text-black',
 
+      // Hover
+      primaryHoverBg2: 'hover:bg-emerald-500/20',
+
       // Toggle track
       trackBg: 'bg-emerald-500/20',
       trackBorder: 'border-emerald-500/40',
@@ -103,6 +106,9 @@ export function useProtectionTheme() {
 
     trackBg: 'bg-red-500/20',
     trackBorder: 'border-red-500/40',
+
+    // Hover
+    primaryHoverBg2: 'hover:bg-red-500/20',
 
     navActiveBg: 'bg-red-500/10',
     navActiveBorder: 'border-red-500/30',

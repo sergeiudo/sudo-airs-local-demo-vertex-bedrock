@@ -123,15 +123,12 @@ export function ChatMessage({ message, onResend, isLoading }) {
               ? 'bg-red-500/10 border-red-500/25'
               : 'bg-white/5 border-white/10'
           }`}>
-            {message.verdict === 'ERROR' ? (
+            {(message.verdict === 'ERROR' || isBlocked) ? (
               <div className="flex items-start gap-2">
-                <ShieldX size={12} className="text-orange-400 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-orange-300 leading-relaxed">{message.blockReason}</p>
-              </div>
-            ) : isBlocked ? (
-              <div className="flex items-start gap-2">
-                <ShieldX size={12} className="text-red-400 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-red-300 leading-relaxed">{message.blockReason}</p>
+                <ShieldX size={12} className={`flex-shrink-0 mt-0.5 ${message.verdict === 'ERROR' ? 'text-orange-400' : 'text-red-400'}`} />
+                <p className={`text-xs leading-relaxed ${message.verdict === 'ERROR' ? 'text-orange-300' : 'text-red-300'}`}>
+                  {message.blockReason}
+                </p>
               </div>
             ) : (
               <p className="text-xs text-slate-200 leading-relaxed">{message.content}</p>

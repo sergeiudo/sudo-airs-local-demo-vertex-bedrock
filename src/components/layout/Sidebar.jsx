@@ -58,11 +58,7 @@ export function Sidebar() {
               href={state.scmUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className={`flex items-center gap-2.5 w-full px-3 py-2.5 my-2 rounded-lg border text-xs font-semibold transition-all duration-300
-                ${theme.isProtected
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
-                  : 'bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20'
-                }`}
+              className={`flex items-center gap-2.5 w-full px-3 py-2.5 my-2 rounded-lg border text-xs font-semibold transition-all duration-300 ${theme.primaryBg2} ${theme.primaryBorder2} ${theme.primaryText} ${theme.primaryHoverBg2}`}
             >
               <ExternalLink size={12} className="flex-shrink-0" />
               <div className="flex-1 min-w-0">

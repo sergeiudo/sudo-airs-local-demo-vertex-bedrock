@@ -48,12 +48,7 @@ export function TopBar() {
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.9 }}
           transition={{ duration: 0.25 }}
-          className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all duration-500
-            ${theme.isProtected
-              ? 'bg-emerald-500/10 border-emerald-500/30'
-              : 'bg-red-500/10 border-red-500/30'
-            }
-          `}
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all duration-500 ${theme.primaryBg2} ${theme.primaryBorder2}`}
         >
           <PulsingDot size="xs" />
           <span className={`text-[10px] font-bold tracking-widest ${theme.primaryText} transition-colors duration-500`}>

@@ -8,6 +8,19 @@ function buildScmUrl(inputScan) {
   return `${SCM_BASE}/${inputScan.tr_id}/${inputScan.profile_id}/CITADEL/transactions/${inputScan.scan_id}/0#date=24hr`
 }
 
+function makeErrorMessage(blockReason) {
+  return {
+    id: `msg-${Date.now()}-err`,
+    role: 'assistant',
+    content: null,
+    blocked: true,
+    blockReason,
+    verdict: 'ERROR',
+    riskScore: null,
+    timestamp: new Date().toISOString(),
+  }
+}
+
 const WELCOME = {
   id: 'welcome',
   role: 'system',
@@ -17,6 +30,7 @@ const WELCOME = {
 
 export function useAttackSimulator() {
   const { state, dispatch } = useAppContext()
+  const { isProtected } = state
   const [messages, setMessages] = useState([WELCOME])
   const [activeTelemetry, setActiveTelemetry] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -42,23 +56,14 @@ export function useAttackSimulator() {
           message: payload,
           backend,
           modelId,
-          airsEnabled: state.isProtected,
+          airsEnabled: isProtected,
         }),
       })
 
       const data = await res.json()
 
       if (!res.ok) {
-        setMessages(prev => [...prev, {
-          id: `msg-${Date.now()}-err`,
-          role: 'assistant',
-          content: null,
-          blocked: true,
-          blockReason: `Server error: ${data.error ?? res.statusText}`,
-          verdict: 'ERROR',
-          riskScore: null,
-          timestamp: new Date().toISOString(),
-        }])
+        setMessages(prev => [...prev, makeErrorMessage(`Server error: ${data.error ?? res.statusText}`)])
         return
       }
 
@@ -84,20 +89,11 @@ export function useAttackSimulator() {
       const url = buildScmUrl(telemetry.inputScan)
       if (url) dispatch({ type: 'SET_SCM_URL', payload: url })
     } catch (err) {
-      setMessages(prev => [...prev, {
-        id: `msg-${Date.now()}-err`,
-        role: 'assistant',
-        content: null,
-        blocked: true,
-        blockReason: `Connection error: ${err.message}. Is the proxy server running?`,
-        verdict: 'ERROR',
-        riskScore: null,
-        timestamp: new Date().toISOString(),
-      }])
+      setMessages(prev => [...prev, makeErrorMessage(`Connection error: ${err.message}. Is the proxy server running?`)])
     } finally {
       setIsLoading(false)
     }
-  }, [state.isProtected])
+  }, [isProtected])
 
   // Called from attack library
   const sendAttack = useCallback((attack, backend, modelId) => {

@@ -16,7 +16,7 @@ export function ChatCenter({ messages, isLoading, onSendMessage, onClear, backen
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, isLoading])
+  }, [messages])
 
   const handleSubmit = (e) => {
     e?.preventDefault()

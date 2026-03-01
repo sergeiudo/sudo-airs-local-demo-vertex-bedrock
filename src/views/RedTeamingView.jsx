@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Swords, Play, Square, RefreshCw, Plus, ChevronDown,
@@ -24,9 +24,22 @@ const CATEGORIES = {
 }
 
 const CAT_COLOR = {
-  SECURITY:   { text: 'text-red-400',    bg: 'bg-red-500/10',    border: 'border-red-500/30' },
-  SAFETY:     { text: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/30' },
-  COMPLIANCE: { text: 'text-blue-400',   bg: 'bg-blue-500/10',   border: 'border-blue-500/30' },
+  SECURITY:   { text: 'text-red-400',    bg: 'bg-red-500/10',    border: 'border-red-500/30',    dot: 'bg-red-400' },
+  SAFETY:     { text: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/30', dot: 'bg-orange-400' },
+  COMPLIANCE: { text: 'text-blue-400',   bg: 'bg-blue-500/10',   border: 'border-blue-500/30',   dot: 'bg-blue-400' },
+}
+
+const PRESETS = {
+  OPENAI: {
+    apiEndpoint: 'https://api.openai.com/v1/chat/completions',
+    requestJson: '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"{INPUT}"}]}',
+    responseKey: 'choices[0].message.content',
+  },
+  REST: {
+    apiEndpoint: '',
+    requestJson: '{"messages":[{"role":"user","content":"{INPUT}"}]}',
+    responseKey: 'choices[0].message.content',
+  },
 }
 
 const TERMINAL_STATUSES = new Set(['COMPLETED', 'FAILED', 'ABORTED'])
@@ -48,19 +61,6 @@ function CreateTargetForm({ onCreated, onCancel }) {
   const [err, setErr] = useState('')
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
-
-  const PRESETS = {
-    OPENAI: {
-      apiEndpoint: 'https://api.openai.com/v1/chat/completions',
-      requestJson: '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"{INPUT}"}]}',
-      responseKey: 'choices[0].message.content',
-    },
-    REST: {
-      apiEndpoint: '',
-      requestJson: '{"messages":[{"role":"user","content":"{INPUT}"}]}',
-      responseKey: 'choices[0].message.content',
-    },
-  }
 
   const applyPreset = (type) => {
     const p = PRESETS[type] || PRESETS.REST
@@ -214,7 +214,7 @@ function CategoryPicker({ selected, onChange }) {
                 allSel ? `${c.bg} ${c.border} border` : selCount > 0 ? `${c.bg} ${c.border} border` : 'border-white/20'
               }`}>
                 {allSel ? <CheckCircle2 size={10} className={c.text} />
-                  : selCount > 0 ? <div className={`w-1.5 h-1.5 rounded-full ${c.text.replace('text', 'bg')}`} /> : null}
+                  : selCount > 0 ? <div className={`w-1.5 h-1.5 rounded-full ${c.dot}`} /> : null}
               </div>
               <span className={`flex-1 text-xs font-semibold ${c.text}`}>{cat}</span>
               <span className="text-[9px] text-slate-600">{selCount}/{subs.length}</span>
@@ -245,8 +245,8 @@ export function RedTeamingView() {
 
   // Targets
   const [targets, setTargets]         = useState([])
-  const [targetsLoading, setTL]       = useState(true)
-  const [selectedTarget, setTarget]   = useState(null)
+  const [targetsLoading, setTargetsLoading] = useState(true)
+  const [selectedTarget, setSelectedTarget] = useState(null)
   const [showCreate, setShowCreate]   = useState(false)
 
   // Job config
@@ -262,6 +262,13 @@ export function RedTeamingView() {
 
   const pollRef = useRef(null)
   const attackPollRef = useRef(null)
+  const attackDelayRef = useRef(null)
+
+  const stopPolling = useCallback(() => {
+    clearInterval(pollRef.current)
+    clearInterval(attackPollRef.current)
+    clearTimeout(attackDelayRef.current)
+  }, [])
 
   // Load targets on mount
   useEffect(() => {
@@ -270,10 +277,10 @@ export function RedTeamingView() {
       .then(d => {
         const list = d.data || []
         setTargets(list)
-        if (list.length > 0) setTarget(list[0])
+        if (list.length > 0) setSelectedTarget(list[0])
       })
       .catch(() => {})
-      .finally(() => setTL(false))
+      .finally(() => setTargetsLoading(false))
   }, [])
 
   // Poll job status
@@ -281,10 +288,13 @@ export function RedTeamingView() {
     try {
       const res = await fetch(`/api/redteam/scan/${id}`)
       const data = await res.json()
-      setJobStatus(data)
+      setJobStatus(prev =>
+        prev?.status === data.status && prev?.completed === data.completed && prev?.total === data.total
+          ? prev
+          : data
+      )
       if (TERMINAL_STATUSES.has(data.status)) {
-        clearInterval(pollRef.current)
-        clearInterval(attackPollRef.current)
+        stopPolling()
         setIsRunning(false)
         // Fetch final report
         if (data.status === 'COMPLETED') {
@@ -295,7 +305,7 @@ export function RedTeamingView() {
         }
       }
     } catch {}
-  }, [])
+  }, [stopPolling])
 
   // Poll attacks
   const pollAttacks = useCallback(async (id) => {
@@ -310,7 +320,7 @@ export function RedTeamingView() {
         ...(bypData.data || []),
         ...(blkData.data || []),
       ].sort((a, b) => (a.uuid > b.uuid ? 1 : -1))
-      if (combined.length) setAttacks(combined)
+      if (combined.length) setAttacks(prev => prev.length === combined.length ? prev : combined)
     } catch {}
   }, [])
 
@@ -338,25 +348,27 @@ export function RedTeamingView() {
     pollRef.current       = setInterval(() => pollStatus(data.uuid), 8000)
     attackPollRef.current = setInterval(() => pollAttacks(data.uuid), 10000)
     pollStatus(data.uuid)
-    setTimeout(() => pollAttacks(data.uuid), 5000)
+    attackDelayRef.current = setTimeout(() => pollAttacks(data.uuid), 5000)
   }
 
   const handleAbort = async () => {
     if (!jobId) return
     await fetch(`/api/redteam/scan/${jobId}/abort`, { method: 'POST' })
-    clearInterval(pollRef.current)
-    clearInterval(attackPollRef.current)
+    stopPolling()
     setIsRunning(false)
   }
 
-  useEffect(() => () => { clearInterval(pollRef.current); clearInterval(attackPollRef.current) }, [])
+  useEffect(() => () => stopPolling(), [stopPolling])
 
   // Derived stats
   const pct       = jobStatus?.total > 0 ? Math.round((jobStatus.completed / jobStatus.total) * 100) : 0
   const asr       = jobStatus?.asr ?? report?.asr ?? null
   const score     = jobStatus?.score ?? report?.score ?? 0
-  const bypassed  = attacks.filter(a => a.threat).length
-  const blocked   = attacks.filter(a => !a.threat).length
+  const { bypassed, blocked } = useMemo(() => {
+    let bypassed = 0, blocked = 0
+    for (const a of attacks) a.threat ? bypassed++ : blocked++
+    return { bypassed, blocked }
+  }, [attacks])
 
   const scmUrl = jobId
     ? `https://stratacloudmanager.paloaltonetworks.com/ai-security/red-team/scans/${jobId}/overview`
@@ -386,7 +398,7 @@ export function RedTeamingView() {
 
             {showCreate
               ? <CreateTargetForm
-                  onCreated={(t) => { setTargets(v => [t, ...v]); setTarget(t); setShowCreate(false) }}
+                  onCreated={(t) => { setTargets(v => [t, ...v]); setSelectedTarget(t); setShowCreate(false) }}
                   onCancel={() => setShowCreate(false)} />
               : targetsLoading
               ? <div className="flex items-center gap-2 p-3 text-slate-600"><RefreshCw size={12} className="animate-spin" /><span className="text-xs">Loading targets…</span></div>
@@ -523,11 +535,7 @@ export function RedTeamingView() {
                   )}
                   {scmUrl && (
                     <a href={scmUrl} target="_blank" rel="noopener noreferrer"
-                      className={`ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[10px] font-semibold transition-all ${
-                        theme.isProtected
-                          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
-                          : 'bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20'
-                      }`}>
+                      className={`ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[10px] font-semibold transition-all ${theme.primaryBg2} ${theme.primaryBorder2} ${theme.primaryText} ${theme.primaryHoverBg2}`}>
                       <ExternalLink size={10} /> View in SCM
                     </a>
                   )}
