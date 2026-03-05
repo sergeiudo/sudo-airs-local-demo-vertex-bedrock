@@ -6,3 +6,5 @@ dist/
 airs-docs-pdfs/
 airs-model-scanner-main/
 CLAUDE.md
+__pycache__/
+*.pyc
