@@ -8,9 +8,22 @@
 
 set -euo pipefail
 
-# Load .env
+# Load .env (robust: ignores comment/blank lines, strips inline comments, and never
+# executes file contents — safe with values containing spaces, '#', '$( )', etc.)
 if [ -f .env ]; then
-  export $(grep -v '^#' .env | grep -v '^$' | xargs)
+  while IFS= read -r _line || [ -n "$_line" ]; do
+    _line="${_line%$'\r'}"                                 # strip CR (CRLF files)
+    case "$_line" in ''|[!A-Za-z_]*) continue ;; esac      # skip blanks + comment/non-var lines
+    _key="${_line%%=*}"
+    case "$_key" in *[!A-Za-z0-9_]*) continue ;; esac      # key must be a valid identifier
+    _val="${_line#*=}"
+    _val="${_val%% #*}"                                    # strip trailing " # inline comment"
+    _val="${_val%"${_val##*[![:space:]]}"}"               # trim trailing whitespace
+    _val="${_val#\"}"; _val="${_val%\"}"                  # strip surrounding double quotes
+    _val="${_val#\'}"; _val="${_val%\'}"                  # strip surrounding single quotes
+    export "$_key=$_val"
+  done < .env
+  unset _line _key _val
 fi
 
 : "${MODEL_SECURITY_CLIENT_ID:?Missing MODEL_SECURITY_CLIENT_ID in .env}"
