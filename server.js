@@ -1321,15 +1321,50 @@ function rnFetch(url) {
   return fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(15000) })
 }
 
+// "april-2026" → "may-2026" (the month after the given slug)
+function rnNextSlug(slug) {
+  const m = (slug || '').match(/^([a-z]+)-(\d{4})$/i)
+  if (!m) return null
+  let mi = RN_MONTHS.indexOf(m[1].toLowerCase())
+  let yr = parseInt(m[2])
+  mi += 1
+  if (mi > 11) { mi = 0; yr += 1 }
+  return `${RN_MONTHS[mi]}-${yr}`
+}
+
 async function fetchReleaseNotes() {
-  // 1) Discover the latest month by following the legacy redirect to its final URL.
+  // 1) Discover the newest month with features. The legacy URL 301-redirects to *a*
+  //    month, but PA does NOT reliably advance that redirect (it lagged on april-2026
+  //    while may/june/july published). So treat the redirect target as a start point
+  //    and walk FORWARD month-by-month, keeping the newest month that still has cards.
   const first = await rnFetch(RN_LEGACY_URL)
   if (!first.ok) throw new Error(`HTTP ${first.status} resolving latest month`)
-  const latestUrl = first.url.replace(/\/+$/, '')
-  const latestSlug = latestUrl.split('/').pop()
+  let latestUrl = first.url.replace(/\/+$/, '')
+  let latestSlug = latestUrl.split('/').pop()
+  let latestFeatures = parseMonthFeatures(await first.text())
+
+  let cur = latestSlug
+  let fwdMisses = 0
+  while (true) {
+    const nxt = rnNextSlug(cur)
+    if (!nxt) break
+    const url = `${RN_BYDATE_BASE}/${nxt}`
+    let feats = []
+    try {
+      const r = await rnFetch(url)
+      feats = r.ok ? parseMonthFeatures(await r.text()) : []
+    } catch { feats = [] }
+    if (feats.length > 0) {
+      latestSlug = nxt; latestUrl = url; latestFeatures = feats; fwdMisses = 0
+    } else if (++fwdMisses >= 2) {
+      break
+    }
+    cur = nxt
+  }
+
   const months = [{
     label: rnLabelFromSlug(latestSlug), slug: latestSlug, url: latestUrl,
-    features: parseMonthFeatures(await first.text()),
+    features: latestFeatures,
   }]
 
   // 2) Walk backwards month-by-month from the latest slug to build a short history.
