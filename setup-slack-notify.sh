@@ -66,7 +66,11 @@ $CRON_SCHEDULE $CRON_CMD
 
 if $INSTALL_CRON; then
   echo "→ Installing weekly cron (Sunday 10:00 $NOTIFY_TZ)..."
-  ( crontab -l 2>/dev/null | sed '/# >>> airs-slack-notify >>>/,/# <<< airs-slack-notify <<</d'; echo "$CRON_BLOCK" ) | crontab -
+  # `crontab -l` exits 1 when the user has no crontab yet (first-time install).
+  # Under `set -euo pipefail` that would abort before we append our block, so
+  # capture existing entries defensively (|| true) and strip any old block.
+  EXISTING="$(crontab -l 2>/dev/null | sed '/# >>> airs-slack-notify >>>/,/# <<< airs-slack-notify <<</d' || true)"
+  printf '%s\n%s\n' "$EXISTING" "$CRON_BLOCK" | grep -v '^$' | crontab -
   echo "✓ Cron installed:"
   crontab -l | sed -n '/# >>> airs-slack-notify >>>/,/# <<< airs-slack-notify <<</p' | sed 's/^/    /'
 fi
