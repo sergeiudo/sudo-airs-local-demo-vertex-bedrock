@@ -33,3 +33,6 @@ traces.db
 traces.db-shm
 traces.db-wal
 portkey-old-workspace-backup.json
+
+# Installed skills (anthropics/skills)
+.agents/

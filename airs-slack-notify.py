@@ -51,7 +51,12 @@ EARLIER_MONTHS = 2  # how many prior months to surface as context
 # -- Scraping --------------------------------------------------------------------
 
 def get(url):
-    return requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=True)
+    r = requests.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=True)
+    # PA docs are UTF-8; requests sometimes guesses latin-1 and mangles em-dashes
+    # (e.g. "workflow—eliminating" -> "workflowâeliminating"). Force UTF-8.
+    if not r.encoding or r.encoding.lower() in ("iso-8859-1", "latin-1"):
+        r.encoding = "utf-8"
+    return r
 
 
 def collapse(text):
@@ -113,13 +118,59 @@ def parse_month_features(soup):
     return features
 
 
+def next_slug(slug):
+    """Return the month slug after the given one (e.g. april-2026 -> may-2026)."""
+    m = re.match(r"^([a-z]+)-(\d{4})$", slug, re.I)
+    if not m:
+        return None
+    mi = MONTHS.index(m.group(1).lower())
+    yr = int(m.group(2))
+    mi += 1
+    if mi > 11:
+        mi = 0
+        yr += 1
+    return "%s-%d" % (MONTHS[mi], yr)
+
+
 def discover_latest():
-    """Follow the legacy redirect to the latest month; return (slug, url, features)."""
+    """Find the newest month that actually has features; return (slug, url, features).
+
+    The legacy "features-introduced" URL 301-redirects to *a* month, but PA does NOT
+    reliably update that redirect to the newest month (it has lagged on april-2026
+    while may/june/july were published). So we treat the redirect target only as a
+    starting point and walk FORWARD month-by-month, keeping the newest month that
+    still has feature cards.
+    """
     r = get(LEGACY_URL)
     r.raise_for_status()
     final = r.url.rstrip("/")
     slug = final.split("/")[-1]
-    return slug, final, parse_month_features(BeautifulSoup(r.text, "html.parser"))
+    features = parse_month_features(BeautifulSoup(r.text, "html.parser"))
+
+    # Walk forward from the redirect target to catch months the redirect missed.
+    best_slug, best_url, best_features = slug, final, features
+    cur = slug
+    misses = 0
+    while True:
+        nxt = next_slug(cur)
+        if not nxt:
+            break
+        url = "%s/%s" % (BYDATE_BASE, nxt)
+        try:
+            rr = get(url)
+            feats = parse_month_features(BeautifulSoup(rr.text, "html.parser")) if rr.status_code == 200 else []
+        except Exception:
+            feats = []
+        if feats:
+            best_slug, best_url, best_features = nxt, url, feats
+            misses = 0
+        else:
+            misses += 1
+            if misses >= 2:  # two consecutive empty months -> we're past the newest
+                break
+        cur = nxt
+
+    return best_slug, best_url, best_features
 
 
 def walk_back(latest_slug, max_months=EARLIER_MONTHS):
