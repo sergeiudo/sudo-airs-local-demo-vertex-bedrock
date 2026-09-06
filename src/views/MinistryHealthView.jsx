@@ -128,6 +128,27 @@ function Stat({ label, value, sub, theme, color, onClick }) {
   )
 }
 
+// ─── Status tiles ─────────────────────────────────────────────────────────────
+// /api/moh/health no longer pings the model or AIRS on every call, so
+// `reachable` is null unless someone asked for it with ?probe=1. Three states,
+// and the tile must not claim more than it knows: verified working, configured
+// but unverified, or genuinely missing. Treating null as "Down" would paint a
+// perfectly healthy demo red.
+
+function statusValue(health, reachable, configured) {
+  if (!health) return '…'
+  if (reachable === true) return 'Reachable'
+  if (reachable === false) return 'Down'
+  return configured ? 'Configured' : 'Not set'
+}
+
+function statusColor(health, reachable, configured) {
+  if (!health) return undefined
+  if (reachable === true) return '#10b981'
+  if (reachable === false) return '#ef4444'
+  return configured ? ACCENT : '#ef4444'
+}
+
 // ─── Architecture diagram ─────────────────────────────────────────────────────
 // Hand-built SVG in the same visual language as the gateway pillar's
 // FlowArchitectureDiagram (OverviewTab.jsx): forced-dark hero panel in both app
@@ -366,14 +387,14 @@ function OverviewTab({ theme, health, onOpenCorpus, onOpenAgent }) {
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <Stat
             label="AI GATEWAY" theme={theme}
-            value={health?.gateway?.reachable ? 'Reachable' : health ? 'Down' : '…'}
-            color={health?.gateway?.reachable ? '#10b981' : '#ef4444'}
+            value={statusValue(health, health?.gateway?.reachable, health?.gateway?.configured)}
+            color={statusColor(health, health?.gateway?.reachable, health?.gateway?.configured)}
             sub={health?.gateway?.baseUrl}
           />
           <Stat
             label="AIRS DIRECT" theme={theme}
-            value={health?.airsDirect?.reachable ? 'Reachable' : health ? 'Down' : '…'}
-            color={health?.airsDirect?.reachable ? '#10b981' : '#ef4444'}
+            value={statusValue(health, health?.airsDirect?.reachable, health?.airsDirect?.configured)}
+            color={statusColor(health, health?.airsDirect?.reachable, health?.airsDirect?.configured)}
             sub={
               health?.airsDirect?.profile
                 ? `${health.airsDirect.profile}${health.airsDirect.usingMohOverride ? ' · MOH override' : ' · portal-wide key'}`

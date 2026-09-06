@@ -357,7 +357,7 @@ const MOH_MODELS = [
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
-router.get('/health', async (_req, res) => {
+router.get('/health', async (req, res) => {
   const missing = []
   if (!ENV.apiKey) missing.push('AIGW_API_KEY')
 
@@ -380,6 +380,10 @@ router.get('/health', async (_req, res) => {
         : 'AIRS is enforced by the workspace-default guardrail on every request, so malicious traffic is blocked and benign traffic passes. There is no unprotected lane to compare against: the chat protection switch is shown as a status badge, and the Agent tab toggle gates the direct tool_event scans only.',
     },
     gateway: {
+      // `configured` is free — it is just env presence. `reachable` stays null
+      // unless ?probe=1 actually called the model, so the tile can tell
+      // "set up" apart from "verified working".
+      configured: !!ENV.apiKey,
       baseUrl: ENV.baseUrl,
       bedrockSlug: ENV.bedrockSlug,
       configProtected: ENV.configProtected || null,
@@ -405,8 +409,27 @@ router.get('/health', async (_req, res) => {
     replay: { enabled: ENV.replayEnabled, cached: Object.keys(readReplay()).length },
   }
 
-  // Probe the gateway with a 1-token call so the status strip is honest.
-  if (ENV.apiKey) {
+  // ── Live probes: opt-in only, via ?probe=1 ──
+  //
+  // These used to run on every call, and /health is fetched on mount by both
+  // the pillar view and the embedded BriutApp — so simply opening the pillar
+  // fired two real Bedrock completions and two real AIRS scans. That is a
+  // measurable cost, but the actual damage was to the logs: 'ping' / 'P' rows
+  // crowded out real scenario traffic in the same SCM Observability and AI
+  // Security views this demo is meant to show a customer.
+  //
+  // Almost nothing consumed the result — BriutApp reads only `enforcement`,
+  // which is derived from env config and needs no network at all. The single
+  // consumer was one Overview status tile, which now reports configuration
+  // state instead and says plainly that it has not been verified.
+  //
+  // The probes are still worth having once before a demo: config alone cannot
+  // catch a stale Bedrock STS key, an unprovisioned model, an SCP-denied one,
+  // or AIRS pointed at the wrong SCM tenant. So they remain one query param
+  // away — GET /api/moh/health?probe=1 — rather than deleted outright.
+  const probe = req.query.probe === '1'
+
+  if (probe && ENV.apiKey) {
     try {
       const client = buildAigwClient(ENV.configUnprotected || null, { metadata: gwMetadata({ scenario: 'health' }) })
       await client.chat.completions.create({
@@ -421,8 +444,7 @@ router.get('/health', async (_req, res) => {
     }
   }
 
-  // Probe direct AIRS separately — the tool_event path depends on it.
-  if (out.airsDirect.configured) {
+  if (probe && out.airsDirect.configured) {
     try {
       await airscanMoh({ prompt: 'ping' })
       out.airsDirect.reachable = true
@@ -432,6 +454,7 @@ router.get('/health', async (_req, res) => {
     }
   }
 
+  out.probed = probe
   res.json(out)
 })
 
