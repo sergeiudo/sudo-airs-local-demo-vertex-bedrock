@@ -36,3 +36,7 @@ portkey-old-workspace-backup.json
 
 # Installed skills (anthropics/skills)
 .agents/
+
+# Ministry of Health demo — generated at runtime
+moh-replay.json
+moh-probe-results.json
