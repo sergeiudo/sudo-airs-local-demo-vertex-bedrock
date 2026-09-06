@@ -546,6 +546,7 @@ function ScenarioTab({ familyId, theme, showCorpus, corpusSignal }) {
               >
                 <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                   <span style={{ fontSize: 11.5, fontWeight: 700, color: theme.text, flex: 1 }}>{pick(a.label)}</span>
+                  {a.verified && <span title={t('demo.verifiedHint')} style={{ fontSize: 10, color: '#10b981', fontWeight: 800 }}>✓</span>}
                   <span
                     style={{
                       fontSize: 8.5, fontWeight: 800, padding: '1px 6px', borderRadius: 999,

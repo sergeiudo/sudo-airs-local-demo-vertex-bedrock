@@ -114,17 +114,15 @@ gateway guardrail, same AIRS profile.
 ### 5 · Hebrew vs English, measured (1.5 min)
 Pillar → **מטריצת זיהוי** → **הרצת המטריצה**. Runs live against AIRS.
 
-Expect roughly **EN 16/19 · HE 14/19, zero false positives** on benign controls.
+Expect roughly **EN 16/19 · HE 14/19, zero false positives** on benign controls. Re-run `node moh-probe.mjs` after the DLP rule changes — those numbers predate them.
 
 Do not oversell this slide — its credibility is the point:
 - Hebrew genuinely works for injection, jailbreak, indirect injection, toxic content, self-harm, RCE, base64 and the bidi/zero-width evasions.
-- Three attacks blocked in English pass in Hebrew (role-play admin override, PHI exfiltration, prescription forgery).
-- One goes the *other* way — privilege escalation is caught in Hebrew, missed in English. Coverage is asymmetric, not simply weaker.
-- **Israeli ת.ז. and מספר מבוטח are missed in both languages**, while US SSN and card numbers are caught.
+- Coverage is **asymmetric**, not simply weaker: one payload is caught in Hebrew and missed in English.
+- **Israeli ת.ז. IS detected** — PA ships a `National ID – Israel` data pattern, and `Healthcare Provider – IL` too. Getting it working needed the DLP rule set to OR (an AND across 14 conditions never matches) and the confidence lowered to Low (High wants ~3 matches, so a single pasted ID passes).
+- The honest language gap is elsewhere: **`Health – Generic` and `Healthcare Provider – IL` fire on English but not Hebrew.** Identical clinical text passes in Hebrew. That is the credible finding to raise — not a missing Israeli detector.
 
-Close on that last one. It is the concrete ask: a custom DLP pattern for Israeli
-citizen identifiers. It shows you tested the product honestly against their country's
-data, which is worth more than a clean sweep.
+Close on the language gap. It shows you tested the product against their country's language, not just their data.
 
 ---
 
@@ -132,11 +130,18 @@ data, which is worth more than a clean sweep.
 
 | | |
 |---|---|
-| **Israeli ת.ז. / מבוטח not detected** | No Israeli national-ID DLP pattern out of the box. Fixable with a custom pattern; currently an RFI ask. |
+| **Hebrew clinical text under-detected** | `Health – Generic` and `Healthcare Provider – IL` fire in English but not Hebrew. Israeli ת.ז. *is* detected once the rule is OR and confidence is Low. |
 | **SQL injection not detected** | DB Security is not enabled on profile `sudo-airs-api-profile-new`. Configuration, not a product gap — enable it in SCM before the demo if you can. |
 | **No Israel AIRS region** | US, EU (Germany), India, Singapore. EU is the closest for an Israeli deployment. |
 | **Frontier models refuse unaided** | Opus and Kimi resist every runtime attack with AIRS off. Nemotron 12B does not — that is the leak exhibit. Do not claim Claude leaks. |
 | **Mass PHI dump passes** | `ag-01` is allowed even with AIRS on — benign-looking params, unrecognised Israeli IDs in the output. Demo it on purpose. |
+
+## Pacing — this one will bite you
+
+AIRS **silently skips DLP evaluation when scans arrive faster than roughly one every
+two seconds.** It returns `dlp:false` with no timeout and no error, so a fast click
+looks exactly like a missed detection. Run scenarios one at a time and let each finish.
+Scenarios marked ✓ in the library were measured blocking on repeated runs at that pace.
 
 ## If something breaks on stage
 

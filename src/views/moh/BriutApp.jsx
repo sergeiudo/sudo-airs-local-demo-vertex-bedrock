@@ -921,6 +921,11 @@ function DemoDrawer({ open, onClose, theme, onRun, busy, protectionOn, onToggleP
                           <span style={{ fontSize: 11.5, fontWeight: 600, color: theme.text, flex: 1 }}>
                             {pick(a.label)}
                           </span>
+                          {/* Measured to block on repeated runs — tells the
+                              operator which scenarios are safe to promise. */}
+                          {a.verified && (
+                            <span title={t('demo.verifiedHint')} style={{ fontSize: 10, color: '#10b981', fontWeight: 800 }}>✓</span>
+                          )}
                           <span
                             style={{
                               fontSize: 8.5, fontWeight: 800, padding: '1px 6px', borderRadius: 999,
