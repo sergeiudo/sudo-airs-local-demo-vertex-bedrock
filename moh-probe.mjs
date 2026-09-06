@@ -1,0 +1,207 @@
+/**
+ * moh-probe.mjs — Hebrew vs English AIRS detection probe.
+ *
+ * Fires matched HE/EN payload pairs straight at the Prisma AIRS sync scan API
+ * (same body shape as airscan() in server.js) and prints a coverage table.
+ *
+ * This answers the one open question behind the Ministry of Health demo:
+ * does the AI Runtime API detect the same threats in Hebrew as in English?
+ * PA documents "Multilingual Scanning Support" (June 2026) for AI Red Teaming
+ * only — French, Japanese, Thai, Hindi. Hebrew is not on that list, and there
+ * is no published claim about the runtime detectors. So we measure it.
+ *
+ *   node moh-probe.mjs                 # full run, writes moh-probe-results.json
+ *   node moh-probe.mjs --only=pi-01    # single pair
+ *   node moh-probe.mjs --lang=he       # one language only
+ */
+import 'dotenv/config'
+import { writeFileSync } from 'node:fs'
+import { PAIRS } from './moh-probe-pairs.js'
+
+// ─── AIRS call ────────────────────────────────────────────────────────────────
+
+const BASE = process.env.AIRS_BASE_URL
+const KEY = process.env.AIRS_API_KEY
+const PROFILE = process.env.MOH_AIRS_PROFILE_NAME || process.env.AIRS_PROFILE_NAME
+
+async function scan(prompt, tag) {
+  const body = {
+    tr_id: `moh-probe-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    ai_profile: { profile_name: PROFILE },
+    metadata: { app_name: 'MOH RFI Probe', ai_model: 'probe', app_user: 'moh-probe' },
+    contents: [{ prompt }],
+  }
+  const t0 = Date.now()
+  const res = await fetch(`${BASE}/v1/scan/sync/request`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'x-pan-token': KEY },
+    body: JSON.stringify(body),
+  })
+  const latencyMs = Date.now() - t0
+  if (!res.ok) {
+    return { tag, error: `HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`, latencyMs }
+  }
+  const data = await res.json()
+  const detected = Object.entries(data.prompt_detected || {})
+    .filter(([, v]) => v)
+    .map(([k]) => k)
+  return {
+    tag,
+    action: data.action,
+    category: data.category,
+    detected,
+    scan_id: data.scan_id,
+    latencyMs,
+  }
+}
+
+// ─── Runner ───────────────────────────────────────────────────────────────────
+
+const args = Object.fromEntries(
+  process.argv.slice(2).map((a) => {
+    const [k, v] = a.replace(/^--/, '').split('=')
+    return [k, v ?? true]
+  })
+)
+
+async function pool(items, size, fn) {
+  const out = []
+  let i = 0
+  await Promise.all(
+    Array.from({ length: Math.min(size, items.length) }, async () => {
+      while (i < items.length) {
+        const idx = i++
+        out[idx] = await fn(items[idx])
+      }
+    })
+  )
+  return out
+}
+
+const C = {
+  reset: '\x1b[0m', dim: '\x1b[2m', bold: '\x1b[1m',
+  red: '\x1b[31m', green: '\x1b[32m', yellow: '\x1b[33m', cyan: '\x1b[36m', grey: '\x1b[90m',
+}
+
+function verdictCell(r, expect) {
+  if (!r) return `${C.grey}—      ${C.reset}`
+  if (r.error) return `${C.yellow}ERROR  ${C.reset}`
+  const blocked = r.action === 'block'
+  const correct = expect === 'block' ? blocked : !blocked
+  const word = blocked ? 'BLOCK' : 'allow'
+  const colour = correct ? C.green : C.red
+  return `${colour}${word.padEnd(6)}${C.reset}`
+}
+
+async function main() {
+  if (!BASE || !KEY || !PROFILE) {
+    console.error(
+      `${C.red}Missing AIRS config.${C.reset} Need AIRS_BASE_URL, AIRS_API_KEY and ` +
+        `AIRS_PROFILE_NAME (or MOH_AIRS_PROFILE_NAME) in .env.\n` +
+        `  AIRS_BASE_URL     = ${BASE || '(unset)'}\n` +
+        `  AIRS_API_KEY      = ${KEY ? '(set)' : '(unset)'}\n` +
+        `  profile           = ${PROFILE || '(unset)'}`
+    )
+    process.exit(1)
+  }
+
+  let pairs = PAIRS
+  if (args.only) pairs = pairs.filter((p) => p.id === args.only)
+  const langs = args.lang ? [args.lang] : ['en', 'he']
+
+  console.log(`\n${C.bold}Prisma AIRS — Hebrew vs English detection probe${C.reset}`)
+  console.log(`${C.dim}profile: ${PROFILE}   endpoint: ${BASE}   pairs: ${pairs.length}${C.reset}\n`)
+
+  const jobs = []
+  for (const p of pairs) for (const lang of langs) jobs.push({ p, lang })
+
+  const raw = await pool(jobs, 4, async ({ p, lang }) => ({
+    id: p.id,
+    lang,
+    ...(await scan(p[lang], `${p.id}/${lang}`)),
+  }))
+
+  const byId = {}
+  for (const r of raw) (byId[r.id] ||= {})[r.lang] = r
+
+  // Table
+  const head =
+    `${'ID'.padEnd(10)} ${'EXPECT'.padEnd(7)} ${'EN'.padEnd(6)} ${'HE'.padEnd(6)} ` +
+    `${'EN category'.padEnd(22)} ${'HE category'.padEnd(22)} SCENARIO`
+  console.log(`${C.bold}${head}${C.reset}`)
+  console.log(C.grey + '─'.repeat(head.length + 8) + C.reset)
+
+  const gaps = []
+  for (const p of pairs) {
+    const en = byId[p.id]?.en
+    const he = byId[p.id]?.he
+    console.log(
+      `${p.id.padEnd(10)} ${p.expect.padEnd(7)} ` +
+        `${verdictCell(en, p.expect)} ${verdictCell(he, p.expect)} ` +
+        `${String(en?.category ?? en?.error ?? '—').slice(0, 21).padEnd(22)} ` +
+        `${String(he?.category ?? he?.error ?? '—').slice(0, 21).padEnd(22)} ` +
+        `${C.dim}${p.label}${C.reset}`
+    )
+    if (p.expect === 'block' && en?.action === 'block' && he?.action !== 'block') {
+      gaps.push(p)
+    }
+  }
+
+  // Summary
+  const attacks = pairs.filter((p) => p.expect === 'block')
+  const controls = pairs.filter((p) => p.expect === 'allow')
+  const hit = (lang) => attacks.filter((p) => byId[p.id]?.[lang]?.action === 'block').length
+  const falsePos = (lang) => controls.filter((p) => byId[p.id]?.[lang]?.action === 'block').length
+  const avgMs = (lang) => {
+    const v = raw.filter((r) => r.lang === lang && r.latencyMs).map((r) => r.latencyMs)
+    return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : 0
+  }
+
+  console.log(`\n${C.bold}Summary${C.reset}`)
+  for (const lang of langs) {
+    const pct = attacks.length ? Math.round((hit(lang) / attacks.length) * 100) : 0
+    console.log(
+      `  ${lang.toUpperCase()}  detected ${C.bold}${hit(lang)}/${attacks.length}${C.reset} attacks (${pct}%)  ` +
+        `false positives on controls: ${falsePos(lang)}/${controls.length}  ` +
+        `${C.dim}avg ${avgMs(lang)}ms${C.reset}`
+    )
+  }
+
+  if (gaps.length) {
+    console.log(`\n${C.yellow}${C.bold}Hebrew gaps — blocked in English, allowed in Hebrew:${C.reset}`)
+    for (const g of gaps) console.log(`  ${C.yellow}•${C.reset} ${g.id.padEnd(10)} ${g.label}`)
+    console.log(
+      `\n${C.dim}These are the payloads to either lead in English or surface honestly\n` +
+        `in the Detection Matrix tab as a coverage question for the RFI.${C.reset}`
+    )
+  } else {
+    console.log(`\n${C.green}No Hebrew-only gaps — Hebrew parity with English on this set.${C.reset}`)
+  }
+
+  const outFile = 'moh-probe-results.json'
+  writeFileSync(
+    outFile,
+    JSON.stringify(
+      {
+        ranAt: new Date().toISOString(),
+        profile: PROFILE,
+        endpoint: BASE,
+        pairs: pairs.map((p) => ({ ...p, results: byId[p.id] || {} })),
+        summary: Object.fromEntries(
+          langs.map((l) => [
+            l,
+            { detected: hit(l), of: attacks.length, falsePositives: falsePos(l), avgMs: avgMs(l) },
+          ])
+        ),
+      },
+      null,
+      2
+    )
+  )
+  console.log(`\n${C.dim}Full detail written to ${outFile}${C.reset}\n`)
+}
+
+main().catch((e) => {
+  console.error(`${C.red}Probe failed:${C.reset}`, e)
+  process.exit(1)
+})

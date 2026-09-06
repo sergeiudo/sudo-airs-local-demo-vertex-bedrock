@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Crosshair, ScanSearch, Swords, Terminal, BarChart2, Code2, Network, Database, Waypoints,
+  Crosshair, ScanSearch, Swords, Terminal, BarChart2, Code2, Network, Database, Waypoints, HeartPulse,
   ChevronRight, X, ArrowRight, Shield, Sun, Moon,
 } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
@@ -116,6 +116,18 @@ const PILLARS = [
     accent: '#f59e0b',
     glow: 'rgba(245,158,11,0.32)',
     dim: 'rgba(245,158,11,0.08)',
+  },
+  {
+    id: 'ministryHealth',
+    icon: HeartPulse,
+    title: 'Ministry of Health',
+    tag: 'Bilingual HE/EN',
+    summary: 'A Hebrew health assistant, and the four ways it can be turned against its citizens.',
+    description: 'בריאות.AI — a bilingual Ministry of Health assistant built for the RFI. Every model turn routes through the SCM AI Gateway with the Prisma AIRS guardrail; every tool call is additionally scanned directly by AIRS as a tool_event. Includes a live Hebrew-vs-English detection matrix measuring what the runtime detectors actually catch in Hebrew.',
+    highlights: ['Right-to-left Hebrew citizen chatbot', 'Poisoned clinical documents & forged circulars', 'Agentic PHI exfiltration & memory poisoning', 'Live Hebrew vs English detection matrix'],
+    accent: '#0ea5e9',
+    glow: 'rgba(14,165,233,0.32)',
+    dim: 'rgba(14,165,233,0.08)',
   },
 ]
 
@@ -495,9 +507,10 @@ export function HomeViewV2() {
 
       {/* ── Grid: 4 core pillars + 5 below ── */}
       <div className="relative z-10 px-8 pb-8 max-w-[1280px] mx-auto w-full space-y-4">
-        {/* Row 1: 3 core AIRS pillars + AI/LLM Gateway */}
-        <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-          {PILLARS.slice(0, 4).map((pillar, i) => (
+        {/* Two even rows of 5. Adding a 10th pillar overflowed the old 4+5
+            split, so both rows are now repeat(5, 1fr). */}
+        <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+          {PILLARS.slice(0, 5).map((pillar, i) => (
             <MiniCard
               key={pillar.id}
               pillar={pillar}
@@ -508,13 +521,12 @@ export function HomeViewV2() {
             />
           ))}
         </div>
-        {/* Row 2: 5 pillars (AI Code Assistant leads) */}
         <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
-          {PILLARS.slice(4).map((pillar, i) => (
+          {PILLARS.slice(5).map((pillar, i) => (
             <MiniCard
               key={pillar.id}
               pillar={pillar}
-              index={4 + i}
+              index={5 + i}
               anySelected={!!selected}
               onClick={() => handleSelect(pillar.id)}
               isDark={state.isDark}

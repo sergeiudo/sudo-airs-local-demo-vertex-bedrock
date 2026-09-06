@@ -13,6 +13,13 @@ import { ReleaseNotesView } from './views/ReleaseNotesView'
 import { McpSecurityView } from './views/McpSecurityView'
 import { RagSecurityView } from './views/RagSecurityView'
 import { LlmGatewayView } from './views/LlmGatewayView'
+import { MinistryHealthView } from './views/MinistryHealthView'
+import { BriutStandalone } from './views/moh/BriutApp'
+
+// The portal has no router, so the chrome-free citizen app is selected by
+// query string instead: /?app=briut. Keeping the path at "/" means nothing
+// changes for the Vite dev server or the Express static build.
+const STANDALONE_APP = new URLSearchParams(window.location.search).get('app')
 
 function AppContent() {
   const { state } = useAppContext()
@@ -21,6 +28,10 @@ function AppContent() {
     document.documentElement.classList.toggle('dark', state.isDark)
     document.documentElement.classList.toggle('light', !state.isDark)
   }, [state.isDark])
+
+  // Must come before every other branch: this window has no sidebar, no
+  // top bar and no MainLayout at all.
+  if (STANDALONE_APP === 'briut') return <BriutStandalone />
 
   if (state.activeView === 'home') return <HomeViewV2 />
   if (state.activeView === 'releaseNotes') return <ReleaseNotesView />
@@ -36,6 +47,7 @@ function AppContent() {
       case 'mcpSecurity':      return <McpSecurityView />
       case 'ragSecurity':      return <RagSecurityView />
       case 'llmGateway':       return <LlmGatewayView />
+      case 'ministryHealth':   return <MinistryHealthView />
       default:                 return <ApiInterceptView />
     }
   }

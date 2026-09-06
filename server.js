@@ -18,11 +18,14 @@ import { promisify } from 'util'
 const execFileAsync = promisify(execFile)
 import { insertTrace, insertSpan, getTraces, getTrace, getMetrics, deleteTrace, deleteAllTraces, insertActivity, getActivity } from './src/traceStore.js'
 import portkeyRouter from './portkey-routes.js'
+import mohRouter from './moh-routes.js'
 
 const app = express()
 app.use(cors())
 app.use(express.json({ limit: '10mb' }))
 app.use('/api/gateway', portkeyRouter)
+// Ministry of Health RFI demo — isolated AIGW_* env block, SCM AI Gateway.
+app.use('/api/moh', mohRouter)
 
 const PORT = process.env.PROXY_PORT || 3001
 

@@ -1,4 +1,6 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+/* Heebo carries both Latin and Hebrew — Inter and JetBrains Mono ship no
+   Hebrew subset, so Hebrew text would otherwise fall back to an OS font. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Heebo:wght@300;400;500;600;700;800&display=swap');
 
 @tailwind base;
 @tailwind components;
