@@ -39,7 +39,14 @@ export function CopyButton({ text, accent = '#0d9488' }) {
 /** AIRS detector flags → bilingual pills. */
 export function DetectionBadges({ detected }) {
   const { lang } = useMohLang()
-  const hits = Object.entries(detected || {}).filter(([, v]) => v === true).map(([k]) => k)
+  // Two shapes reach this component. Prompt/response scans hand over AIRS's
+  // own map — { injection: true, dlp: false } — while tool_event scans report
+  // under tool_detected.*.detection_entries, which we flatten to a plain array
+  // of the keys that fired. Reading only the map form silently renders nothing
+  // for every MCP verdict, which hides the reason a manifest was blocked.
+  const hits = Array.isArray(detected)
+    ? detected
+    : Object.entries(detected || {}).filter(([, v]) => v === true).map(([k]) => k)
   if (!hits.length) return null
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>

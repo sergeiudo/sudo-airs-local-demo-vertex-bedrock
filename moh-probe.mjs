@@ -27,12 +27,40 @@ const BASE = process.env.AIRS_BASE_URL
 const KEY = process.env.AIRS_API_KEY
 const PROFILE = process.env.MOH_AIRS_PROFILE_NAME || process.env.AIRS_PROFILE_NAME
 
-async function scan(prompt, tag) {
+/**
+ * `mcp` pairs are not prompts. Their payload is a tool DESCRIPTION inside a
+ * tools/list manifest, so they have to go up as a tool_event or the
+ * tool-poisoning detector never sees them and the row reports a false miss.
+ *
+ * For tools/list the output MUST be a bare mcp.Tool[] — wrapping it as
+ * {"tools":[…]} is rejected with "cannot unmarshal object into Go value of
+ * type []*mcp.Tool".
+ */
+function contentFor(text, mcp) {
+  if (!mcp) return { prompt: text }
+  const method = mcp.method || 'tools/list'
+  return {
+    tool_event: {
+      metadata: {
+        ecosystem: 'mcp',
+        method,
+        server_name: mcp.server || 'kupat-holim-connect',
+        tool_invoked: mcp.tool,
+      },
+      input: JSON.stringify({ method }),
+      output: method === 'tools/call'
+        ? text
+        : JSON.stringify([{ name: mcp.tool, description: text, inputSchema: mcp.inputSchema || { type: 'object' } }]),
+    },
+  }
+}
+
+async function scan(prompt, tag, mcp = null) {
   const body = {
     tr_id: `moh-probe-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     ai_profile: { profile_name: PROFILE },
     metadata: { app_name: 'MOH RFI Probe', ai_model: 'probe', app_user: 'moh-probe' },
-    contents: [{ prompt }],
+    contents: [contentFor(prompt, mcp)],
   }
   const t0 = Date.now()
   const res = await fetch(`${BASE}/v1/scan/sync/request`, {
@@ -45,9 +73,18 @@ async function scan(prompt, tag) {
     return { tag, error: `HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`, latencyMs }
   }
   const data = await res.json()
-  const detected = Object.entries(data.prompt_detected || {})
-    .filter(([, v]) => v)
-    .map(([k]) => k)
+  // tool_event scans report under tool_detected.*.detection_entries rather
+  // than prompt_detected, so an MCP row would otherwise show BLOCK with no
+  // detector next to it.
+  const entries = [
+    ...(data.tool_detected?.output_detected?.detection_entries || []),
+    ...(data.tool_detected?.input_detected?.detection_entries || []),
+  ]
+  const detected = entries.length
+    ? [...new Set(entries.flatMap((e) => Object.entries(e.detections || {}).filter(([, v]) => v).map(([k]) => k)))]
+    : Object.entries(data.prompt_detected || {})
+        .filter(([, v]) => v)
+        .map(([k]) => k)
   return {
     tag,
     action: data.action,
@@ -130,7 +167,7 @@ async function main() {
   const raw = await pool(jobs, 4, async ({ p, lang }) => ({
     id: p.id,
     lang,
-    ...(await scan(p[lang], `${p.id}/${lang}`)),
+    ...(await scan(p[lang], `${p.id}/${lang}`, p.mcp || null)),
   }))
 
   const byId = {}

@@ -27,6 +27,16 @@ import {
   getMohMemory,
   resetMohState,
 } from './moh-content.js'
+import {
+  MOH_MCP_SERVERS,
+  MCP_TRUSTED,
+  MCP_THIRD_PARTY,
+  MCP_VARIANTS,
+  mcpListTools,
+  mcpCallTool,
+  resetMohMcpState,
+  rugPullStatus,
+} from './moh-mcp.js'
 import { PAIRS } from './moh-probe-pairs.js'
 
 const router = express.Router()
@@ -184,7 +194,21 @@ function parseBlockError(e) {
 
 // ─── Direct AIRS (tool_event scanning the gateway guardrail cannot do) ────────
 
-async function airscanMoh({ prompt = null, response = null, toolName, toolInput, toolOutput = null, model = 'moh-agent' }) {
+// `serverName` and `method` used to be hardcoded to the ministry's own server
+// and tools/call. They are parameters now because the MCP supply-chain tab
+// scans OTHER servers, and scans `tools/list` as well as `tools/call` — AIRS
+// treats a tool listing as its own event type and runs the tool-poisoning
+// detector over the descriptions in it.
+//
+// For method 'tools/list' the output MUST be a bare mcp.Tool[] array. Wrapping
+// it as {"tools":[…]} makes AIRS reject the whole scan with
+// "cannot unmarshal object into Go value of type []*mcp.Tool".
+async function airscanMoh({
+  prompt = null, response = null,
+  toolName, toolInput, toolOutput = null,
+  serverName = 'moh-health-services', method = 'tools/call',
+  model = 'moh-agent',
+}) {
   if (!ENV.airsKey || !ENV.airsBase || !ENV.airsProfile) {
     const err = new Error('AIRS direct API not configured (AIRS_API_KEY / AIRS_BASE_URL / AIRS_PROFILE_NAME)')
     err.code = 'airs_unconfigured'
@@ -199,8 +223,8 @@ async function airscanMoh({ prompt = null, response = null, toolName, toolInput,
     contentItem.tool_event = {
       metadata: {
         ecosystem: 'mcp',
-        method: 'tools/call',
-        server_name: 'moh-health-services',
+        method,
+        server_name: serverName,
         tool_invoked: toolName,
       },
       input: typeof toolInput === 'string' ? toolInput : JSON.stringify(toolInput),
@@ -438,7 +462,10 @@ router.get('/tools', (_req, res) => {
 
 router.post('/reset', (_req, res) => {
   resetMohState()
-  res.json({ ok: true, memory: getMohMemory() })
+  // The rug-pull beat is stateful (clean manifest first, poisoned after), so a
+  // demo reset has to clear it too or the second run starts already poisoned.
+  resetMohMcpState()
+  res.json({ ok: true, memory: getMohMemory(), rugPull: rugPullStatus() })
 })
 
 // ── Streaming chat ────────────────────────────────────────────────────────────
@@ -900,6 +927,175 @@ router.post('/agent', async (req, res) => {
   }
 })
 
+// ── MCP tool supply chain ─────────────────────────────────────────────────────
+// One level up from /agent: /agent asks whether a tool CALL is safe, these ask
+// whether the tool DEFINITION is — the description the model reads and the user
+// never sees. AIRS scans a tools/list as its own event type and runs the
+// tool-poisoning detector across every description in the array.
+
+router.get('/mcp/servers', (_req, res) => {
+  res.json({
+    servers: MOH_MCP_SERVERS.map((s) => ({
+      ...s,
+      toolCount: mcpListTools(s.id, { lang: 'en' }).tools.length,
+    })),
+    variants: MCP_VARIANTS,
+    trusted: MCP_TRUSTED,
+    thirdParty: MCP_THIRD_PARTY,
+    rugPull: rugPullStatus(),
+  })
+})
+
+router.post('/mcp/reset', (_req, res) => {
+  resetMohMcpState()
+  res.json({ ok: true, rugPull: rugPullStatus() })
+})
+
+/**
+ * MCP `tools/list` + AIRS scan of the returned manifest.
+ *
+ * The manifest goes into tool_event.output as a bare mcp.Tool[]. `tool_invoked`
+ * names the tool the listing is about so a block points at something concrete
+ * in the UI rather than at the server as a whole.
+ */
+router.post('/mcp/list', async (req, res) => {
+  const { serverId = MCP_THIRD_PARTY, variant = 'benign', lang = 'en', airsEnabled = true, scenario } = req.body || {}
+
+  const result = {
+    serverId, variant, lang, airsEnabled, scenario: scenario || null,
+    tools: [], servedVariant: null, scan: null,
+    blocked: false, blockReason: null, flaggedTools: [],
+    latencyMs: 0, error: null, rugPull: rugPullStatus(),
+  }
+  const startedAt = Date.now()
+
+  try {
+    const listing = mcpListTools(serverId, { variant, lang })
+    result.servedVariant = listing.variant
+    result.rugPull = rugPullStatus()
+
+    if (airsEnabled) {
+      try {
+        const scan = await airscanMoh({
+          toolName: listing.tools[0]?.name || 'tools/list',
+          toolInput: JSON.stringify({ method: 'tools/list' }),
+          toolOutput: JSON.stringify(listing.tools),
+          serverName: serverId,
+          method: 'tools/list',
+          model: 'moh-mcp',
+        })
+        const entries = scan.data.tool_detected?.output_detected?.detection_entries || []
+        result.scan = {
+          action: scan.data.action, category: scan.data.category, scan_id: scan.data.scan_id,
+          latencyMs: scan.latencyMs, detectionEntries: entries,
+          requestBody: scan.requestBody, source: 'airs-direct-tool-event',
+          detected: [...new Set(entries.flatMap((e) =>
+            Object.entries(e.detections || {}).filter(([, v]) => v).map(([k]) => k)))],
+        }
+        if (scan.data.action === 'block') {
+          result.blocked = true
+          result.blockReason = scan.data.category || 'blocked by AIRS'
+          // A blocked manifest must not reach the client as usable tools —
+          // that is the whole point of scanning it before the model sees it.
+          result.flaggedTools = listing.tools.map((t) => t.name)
+          result.latencyMs = Date.now() - startedAt
+          return res.json(result)
+        }
+      } catch (e) {
+        if (e.code === 'airs_unconfigured') result.error = e.message
+        else throw e
+      }
+    }
+
+    result.tools = listing.tools
+    result.latencyMs = Date.now() - startedAt
+    return res.json(result)
+  } catch (e) {
+    result.error = String(e?.message || e).slice(0, 400)
+    result.latencyMs = Date.now() - startedAt
+    return res.status(e?.status === 404 ? 404 : 502).json(result)
+  }
+})
+
+/** MCP `tools/call` against a named server — same two stages as /agent. */
+router.post('/mcp/invoke', async (req, res) => {
+  const { serverId = MCP_THIRD_PARTY, tool, params = {}, lang = 'en', airsEnabled = true, scenario } = req.body || {}
+  if (!tool) return res.status(400).json({ error: 'bad_request', message: 'tool is required' })
+
+  const result = {
+    serverId, tool, params, lang, airsEnabled, scenario: scenario || null,
+    stage1: null, stage2: null, toolResult: null,
+    blocked: false, blockStage: null, blockReason: null,
+    latencyMs: 0, error: null,
+  }
+  const startedAt = Date.now()
+  const toolInput = JSON.stringify(params)
+
+  try {
+    if (airsEnabled) {
+      try {
+        const s1 = await airscanMoh({
+          prompt: toolInput, toolName: tool, toolInput,
+          serverName: serverId, method: 'tools/call', model: 'moh-mcp',
+        })
+        result.stage1 = {
+          action: s1.data.action, category: s1.data.category, scan_id: s1.data.scan_id,
+          latencyMs: s1.latencyMs, prompt_detected: s1.data.prompt_detected || {},
+          requestBody: s1.requestBody, source: 'airs-direct-tool-event',
+        }
+        if (s1.data.action === 'block') {
+          result.blocked = true
+          result.blockStage = 1
+          result.blockReason = s1.data.category || 'blocked by AIRS'
+          result.latencyMs = Date.now() - startedAt
+          return res.json(result)
+        }
+      } catch (e) {
+        if (e.code === 'airs_unconfigured') result.error = e.message
+        else throw e
+      }
+    }
+
+    try {
+      result.toolResult = mcpCallTool(serverId, tool, params, { lang })
+    } catch (e) {
+      result.error = e.message
+      result.latencyMs = Date.now() - startedAt
+      return res.json(result)
+    }
+
+    if (airsEnabled && !result.error) {
+      const toolOutput = JSON.stringify(result.toolResult).slice(0, 20000)
+      try {
+        const s2 = await airscanMoh({
+          response: toolOutput, toolName: tool, toolInput, toolOutput,
+          serverName: serverId, method: 'tools/call', model: 'moh-mcp',
+        })
+        result.stage2 = {
+          action: s2.data.action, category: s2.data.category, scan_id: s2.data.scan_id,
+          latencyMs: s2.latencyMs, response_detected: s2.data.response_detected || {},
+          requestBody: s2.requestBody, source: 'airs-direct-tool-event',
+        }
+        if (s2.data.action === 'block') {
+          result.blocked = true
+          result.blockStage = 2
+          result.blockReason = s2.data.category || 'blocked by AIRS'
+        }
+      } catch (e) {
+        if (e.code === 'airs_unconfigured') result.error = e.message
+        else throw e
+      }
+    }
+
+    result.latencyMs = Date.now() - startedAt
+    return res.json(result)
+  } catch (e) {
+    result.error = String(e?.message || e).slice(0, 400)
+    result.latencyMs = Date.now() - startedAt
+    return res.status(502).json(result)
+  }
+})
+
 // ── Live Hebrew-vs-English detection matrix ───────────────────────────────────
 
 router.get('/matrix/pairs', (_req, res) => {
@@ -927,11 +1123,35 @@ router.post('/matrix', async (req, res) => {
       while (i < jobs.length) {
         const { p, lang } = jobs[i++]
         try {
-          const r = await airscanMoh({ prompt: p[lang], model: 'moh-matrix' })
+          // MCP pairs are not prompts — the payload is a tool DESCRIPTION
+          // inside a tools/list manifest, so they have to be scanned as a
+          // tool_event or the tool-poisoning detector never runs on them.
+          const r = p.mcp
+            ? await airscanMoh({
+                toolName: p.mcp.tool,
+                toolInput: JSON.stringify({ method: p.mcp.method || 'tools/list' }),
+                toolOutput: p.mcp.method === 'tools/call'
+                  ? p[lang]
+                  : JSON.stringify([{ name: p.mcp.tool, description: p[lang], inputSchema: p.mcp.inputSchema || { type: 'object' } }]),
+                serverName: p.mcp.server || MCP_THIRD_PARTY,
+                method: p.mcp.method || 'tools/list',
+                model: 'moh-matrix',
+              })
+            : await airscanMoh({ prompt: p[lang], model: 'moh-matrix' })
+          // tool_event scans report under tool_detected.*.detection_entries,
+          // not prompt_detected — reading only the latter shows an MCP row as
+          // blocked with no reason next to it.
+          const entries = [
+            ...(r.data.tool_detected?.output_detected?.detection_entries || []),
+            ...(r.data.tool_detected?.input_detected?.detection_entries || []),
+          ]
+          const detected = entries.length
+            ? [...new Set(entries.flatMap((e) => Object.entries(e.detections || {}).filter(([, v]) => v).map(([k]) => k)))]
+            : Object.entries(r.data.prompt_detected || {}).filter(([, v]) => v).map(([k]) => k)
           out.push({
             id: p.id, lang,
             action: r.data.action, category: r.data.category, scan_id: r.data.scan_id,
-            detected: Object.entries(r.data.prompt_detected || {}).filter(([, v]) => v).map(([k]) => k),
+            detected,
             latencyMs: r.latencyMs,
           })
         } catch (e) {

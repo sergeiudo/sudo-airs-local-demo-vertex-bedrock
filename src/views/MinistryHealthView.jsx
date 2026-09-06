@@ -2,12 +2,13 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   HeartPulse, MessageSquare, FileText, Wrench, Grid3x3, Scale, ExternalLink,
-  Play, RefreshCw, ShieldCheck, ShieldOff, AlertTriangle, CheckCircle2, XCircle,
+  Play, RefreshCw, ShieldCheck, ShieldOff, AlertTriangle, CheckCircle2, XCircle, Server,
 } from 'lucide-react'
 import { useAppContext } from '../context/AppContext'
 import { MohLangProvider, useMohLang } from './moh/i18n'
 import { mohTheme, MOH_RISK_COLORS } from './moh/theme'
 import { BriutApp } from './moh/BriutApp'
+import McpTab from './moh/McpTab'
 import { openCitizenApp } from './moh/bus'
 import { MOH_ATTACKS_BY_FAMILY, MOH_SEVERITY_COLORS, MOH_DETECTORS } from '../data/moh/attacks'
 import { ScanStageCard, AirsPayloadViewer, VerdictPill, CopyButton } from './moh/components/ScanPanels'
@@ -29,6 +30,7 @@ const TABS = [
   { id: 'chat', icon: MessageSquare, key: 'tabs.chat' },
   { id: 'rag', icon: FileText, key: 'tabs.rag' },
   { id: 'agent', icon: Wrench, key: 'tabs.agent' },
+  { id: 'mcp', icon: Server, key: 'tabs.mcp' },
   { id: 'matrix', icon: Grid3x3, key: 'tabs.matrix' },
   { id: 'governance', icon: Scale, key: 'tabs.governance' },
 ]
@@ -1093,6 +1095,7 @@ function MinistryHealthInner() {
             {tb.id === 'chat' && <ChatTab theme={theme} />}
             {tb.id === 'rag' && <ScenarioTab familyId="rag" theme={theme} showCorpus corpusSignal={corpusSignal} />}
             {tb.id === 'agent' && <ScenarioTab familyId="agent" theme={theme} />}
+            {tb.id === 'mcp' && <McpTab theme={theme} />}
             {tb.id === 'matrix' && <MatrixTab theme={theme} />}
             {tb.id === 'governance' && <GovernanceTab theme={theme} />}
           </div>
