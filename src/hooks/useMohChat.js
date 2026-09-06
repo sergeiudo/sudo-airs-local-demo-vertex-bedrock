@@ -63,6 +63,33 @@ export function useMohChat() {
       const controller = new AbortController()
       abortRef.current = controller
 
+      // Token batching. Bedrock delivers ~150 frames of ~3 chars for a short
+      // answer, in bursts with sub-millisecond gaps. One setState per frame
+      // meant 150 full re-renders — each one re-parsing the whole markdown
+      // string and firing a smooth-scroll — which is what made a 13s stream
+      // look like it was being typed. Coalescing to ~20fps cuts that to ~15
+      // renders with no visible change to the streaming effect.
+      let pending = ''
+      let flushTimer = null
+      const flushTokens = () => {
+        flushTimer = null
+        if (!pending) return
+        const chunk = pending
+        pending = ''
+        setMessages((prev) =>
+          prev.map((m) => (m.id === asstId ? { ...m, content: m.content + chunk } : m))
+        )
+      }
+      const queueToken = (text) => {
+        pending += text
+        if (flushTimer == null) flushTimer = setTimeout(flushTokens, 50)
+      }
+      /** Drain the buffer before any terminal state so nothing is dropped. */
+      const settle = () => {
+        if (flushTimer != null) { clearTimeout(flushTimer); flushTimer = null }
+        flushTokens()
+      }
+
       let buf = ''
       try {
         const resp = await fetch('/api/moh/chat', {
@@ -107,6 +134,7 @@ export function useMohChat() {
             try { parsed = JSON.parse(raw) } catch { continue }
 
             if (currentEvent === 'metadata') {
+              settle()
               const { hook_results, tokensOut, ...rest } = parsed
               patch(asstId, {
                 status: parsed.flagged ? 'flagged' : 'done',
@@ -135,6 +163,7 @@ export function useMohChat() {
               )
               currentEvent = null
             } else if (currentEvent === 'blocked') {
+              settle()
               patch(asstId, {
                 status: 'blocked',
                 content: '',
@@ -152,18 +181,18 @@ export function useMohChat() {
               })
               currentEvent = null
             } else if (currentEvent === 'error') {
+              settle()
               patch(asstId, { status: 'error', content: parsed.message || 'Stream error' })
               currentEvent = null
             } else if (parsed.type === 'token') {
-              setMessages((prev) =>
-                prev.map((m) => (m.id === asstId ? { ...m, content: m.content + parsed.text } : m))
-              )
+              queueToken(parsed.text)
             }
           }
         }
       } catch (e) {
         if (e?.name !== 'AbortError') patch(asstId, { status: 'error', content: String(e?.message || e) })
       } finally {
+        settle()
         setBusy(false)
         abortRef.current = null
       }

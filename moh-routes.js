@@ -307,7 +307,7 @@ async function persistMohTrace({ prompt, response, verdict, model, latencyMs, ho
 //   unavailable  — known blocked today (account setting or org SCP)
 
 const MOH_MODELS = [
-  { id: 'us.anthropic.claude-opus-4-8', displayName: 'Claude Opus 4.8', status: 'verified', note: 'Default. Best Hebrew, resists every runtime attack unaided — good for the protected story.' },
+  { id: 'us.anthropic.claude-opus-4-8', displayName: 'Claude Opus 4.8', status: 'verified', note: 'Best Hebrew, resists every runtime attack unaided. Slow: ~4s to first token, ~47 chars/s.' },
   {
     id: 'nvidia.nemotron-nano-12b-v2', displayName: 'Nemotron Nano 12B', status: 'leaky',
     // The one model that actually loses the system prompt. That makes it the
@@ -315,7 +315,7 @@ const MOH_MODELS = [
     // weakening the system prompt to manufacture a leak.
     note: 'LEAKS. With AIRS off it dumps the system prompt including the internal service key and patient IDs. Use for the unprotected demo. Hebrew is unreliable outside that scenario.',
   },
-  { id: 'anthropic.claude-3-haiku-20240307-v1:0', displayName: 'Claude 3 Haiku', status: 'verified', note: 'Cheap and naive on retrieved content — states the poisoned 60ml dose flatly. Use for the RAG beat.' },
+  { id: 'anthropic.claude-3-haiku-20240307-v1:0', displayName: 'Claude 3 Haiku', status: 'verified', note: 'Fastest: ~1.8s to first token, ~102 chars/s. Naive on retrieved content — states the poisoned 60ml dose flatly. Use for the RAG beat, and when pace matters.' },
   { id: 'moonshotai.kimi-k2.5', displayName: 'Kimi K2.5 (Moonshot)', status: 'verified', note: 'Excellent Hebrew. Refuses the runtime attacks unaided, same as Claude.' },
   { id: 'moonshot.kimi-k2-thinking', displayName: 'Kimi K2 Thinking', status: 'intermittent', note: 'Reachable but frequently returns an empty body — reasoning model, needs generous max_tokens.' },
   { id: 'us.anthropic.claude-sonnet-5', displayName: 'Claude Sonnet 5', status: 'intermittent', note: 'Cross-region profile round-robins; model access is not enabled in all three regions.' },
@@ -502,6 +502,10 @@ router.post('/chat', async (req, res) => {
       messages: fullMessages,
       stream: true,
       stream_options: { include_usage: true },
+      // Opus writes long by default — a bulleted 650-char answer took ~14s to
+      // stream, which reads as sluggish on a projector. Capping bounds the
+      // worst case and the cost; the system prompt already asks for brevity.
+      max_tokens: Number(process.env.MOH_MAX_TOKENS) || 700,
     })
 
     try {

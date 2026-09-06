@@ -285,7 +285,7 @@ function HeaderAction({ icon: Icon, label, title, onClick }) {
 
 // ─── Messages ─────────────────────────────────────────────────────────────────
 
-function UserBubble({ msg, theme }) {
+const UserBubble = React.memo(function UserBubble({ msg, theme }) {
   const { pick } = useMohLang()
   const dir = isHebrewText(msg.content) ? 'rtl' : 'ltr'
   return (
@@ -321,7 +321,7 @@ function UserBubble({ msg, theme }) {
       </div>
     </motion.div>
   )
-}
+})
 
 function CitationCards({ docs, theme }) {
   const { t, lang } = useMohLang()
@@ -548,7 +548,7 @@ function AssistantBubble({ msg, theme }) {
  * dangerouslySetInnerHTML on model output is exactly the sink this demo is
  * about, so this builds React nodes and never parses HTML.
  */
-function MarkdownLite({ text, theme }) {
+const MarkdownLite = React.memo(function MarkdownLite({ text, theme }) {
   const lines = String(text || '').split('\n')
 
   const inline = (s, keyBase) => {
@@ -609,7 +609,7 @@ function MarkdownLite({ text, theme }) {
   })
 
   return <>{out}</>
-}
+})
 
 function TypingDots({ color }) {
   return (
@@ -978,9 +978,16 @@ function BriutAppInner({ embedded = false }) {
     fetch('/api/moh/health').then((r) => r.json()).then(setHealth).catch(() => {})
   }, [])
 
+  // Auto-scroll. 'smooth' fired per token queued ~150 overlapping animations
+  // and made the pane judder. Jump instantly while streaming, and leave the
+  // user alone if they have scrolled up to read something.
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
-  }, [messages])
+    const el = scrollRef.current
+    if (!el) return
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160
+    if (!nearBottom) return
+    el.scrollTo({ top: el.scrollHeight, behavior: busy ? 'auto' : 'smooth' })
+  }, [messages, busy])
 
   const runAttack = useCallback(
     (attack) => {
