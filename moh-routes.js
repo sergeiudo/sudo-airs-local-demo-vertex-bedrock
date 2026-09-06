@@ -37,8 +37,16 @@ const ENV = {
   configProtected:   process.env.AIGW_CONFIG_PROTECTED || '',
   configUnprotected: process.env.AIGW_CONFIG_UNPROTECTED || '',
   bedrockSlug:       process.env.AIGW_BEDROCK_SLUG || '@sudo-bedrock',
-  airsBase:          process.env.AIRS_BASE_URL || '',
-  airsKey:           process.env.AIRS_API_KEY || '',
+  // Direct-AIRS credentials, with MOH_* overrides taking precedence.
+  //
+  // The gateway half of this pillar is already isolated behind AIGW_*, but the
+  // tool_event scans and the detection matrix call the AIRS API directly and
+  // were reusing the portal-wide AIRS_* vars. On a host bound to a different
+  // SCM tenant (EC2 is bound to the team's) that means the MOH pillar scans
+  // against the wrong tenant and fails. These overrides let one host run the
+  // nine existing pillars on the team tenant and MOH on a personal one.
+  airsBase:          process.env.MOH_AIRS_BASE_URL || process.env.AIRS_BASE_URL || '',
+  airsKey:           process.env.MOH_AIRS_API_KEY || process.env.AIRS_API_KEY || '',
   airsProfile:       process.env.MOH_AIRS_PROFILE_NAME || process.env.AIRS_PROFILE_NAME || '',
   replayEnabled:     process.env.MOH_DEMO_REPLAY !== '0',
 }
@@ -355,6 +363,10 @@ router.get('/health', async (_req, res) => {
       configured: !!(ENV.airsKey && ENV.airsBase && ENV.airsProfile),
       baseUrl: ENV.airsBase || null,
       profile: ENV.airsProfile || null,
+      // Which tenant these calls actually hit. Without this the health tile
+      // cannot tell "AIRS is down" apart from "AIRS is up but pointed at the
+      // wrong SCM tenant", which is the likelier failure on a shared host.
+      usingMohOverride: !!(process.env.MOH_AIRS_API_KEY || process.env.MOH_AIRS_BASE_URL),
       reachable: null,
       error: null,
     },

@@ -337,13 +337,20 @@ function OverviewTab({ theme, health, onOpenCorpus, onOpenAgent }) {
             label="AIRS DIRECT" theme={theme}
             value={health?.airsDirect?.reachable ? 'Reachable' : health ? 'Down' : '…'}
             color={health?.airsDirect?.reachable ? '#10b981' : '#ef4444'}
-            sub={health?.airsDirect?.profile}
+            sub={
+              health?.airsDirect?.profile
+                ? `${health.airsDirect.profile}${health.airsDirect.usingMohOverride ? ' · MOH override' : ' · portal-wide key'}`
+                : undefined
+            }
           />
           <Stat
             label="ENFORCEMENT" theme={theme}
-            value={health?.enforcement?.mode === 'enforce' ? 'Enforce' : 'Monitor'}
-            color={health?.enforcement?.mode === 'enforce' ? '#10b981' : '#f59e0b'}
-            sub={health?.enforcement?.canBlock ? 'config blocks' : 'flag only'}
+            /* Server reports mode 'config' | 'workspace' — an earlier revision
+               used 'enforce', so this tile read Monitor even when a protected
+               config was wired. */
+            value={health?.enforcement?.mode === 'config' ? 'Enforce' : health ? 'Workspace' : '…'}
+            color={health?.enforcement?.mode === 'config' ? '#10b981' : '#f59e0b'}
+            sub={health?.enforcement?.canCompareLanes ? 'both lanes wired' : 'no unprotected lane'}
           />
           <Stat label="CORPUS" theme={theme} value={health?.corpus ?? '…'} sub="clinical documents →" onClick={onOpenCorpus} />
           <Stat label="TOOLS" theme={theme} value={health?.tools ?? '…'} sub="health services →" onClick={onOpenAgent} />
