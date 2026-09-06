@@ -17,6 +17,7 @@ const VIEW_LABELS = {
   mcpSecurity:     { label: 'MCP Security',                 sublabel: 'Live MCP tool protection with Prisma AIRS',  text: 'text-cyan-400',   color: '#06B6D4' },
   ragSecurity:     { label: 'RAG Security',                 sublabel: 'Retrieval-Augmented Generation pipeline protection', text: 'text-amber-400', color: '#F59E0B' },
   llmGateway:      { label: 'AI/LLM Gateway',               sublabel: 'Portkey gateway + Prisma AIRS guardrail',           text: 'text-pink-400',   color: '#EC4899' },
+  ministryHealth:  { label: 'Ministry of Health',           sublabel: 'בריאות.AI — bilingual HE/EN health assistant demo', text: 'text-sky-400',    color: '#0EA5E9' },
 }
 
 export function TopBar() {
@@ -77,6 +78,17 @@ export function TopBar() {
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: '#ec4899' }} />
           <span className="text-[10px] font-bold tracking-widest" style={{ color: '#ec4899' }}>
             GUARDRAIL PER REQUEST
+          </span>
+        </div>
+      ) : state.activeView === 'ministryHealth' ? (
+        /* Same reason as the gateway pillar: MOH owns its own AIRS switch per
+           tab, so a global "VULNERABLE" pill next to an "AIRS פעיל" panel just
+           contradicts itself on the projector. */
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border"
+             style={{ background: 'rgba(14,165,233,0.12)', borderColor: 'rgba(14,165,233,0.4)' }}>
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: '#0ea5e9' }} />
+          <span className="text-[10px] font-bold tracking-widest" style={{ color: '#0ea5e9' }}>
+            AIRS PER SCENARIO
           </span>
         </div>
       ) : (

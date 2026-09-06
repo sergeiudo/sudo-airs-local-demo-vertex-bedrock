@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Crosshair, ScanSearch, Swords, Terminal, Settings, Activity, ExternalLink, BarChart2, Code2, Network, Database, Waypoints } from 'lucide-react'
+import { Crosshair, ScanSearch, Swords, Terminal, Settings, Activity, ExternalLink, BarChart2, Code2, Network, Database, Waypoints, HeartPulse } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Logo } from '../sidebar/Logo'
 import { ProtectionToggle } from '../sidebar/ProtectionToggle'
@@ -71,6 +71,13 @@ const NAV_ITEMS = [
     icon: Database,
     color: { text: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/30', bar: 'bg-amber-400' },
   },
+  {
+    id: 'ministryHealth',
+    label: 'Ministry of Health',
+    sublabel: 'משרד הבריאות — bilingual RFI demo',
+    icon: HeartPulse,
+    color: { text: 'text-sky-400', bg: 'bg-sky-500/10', border: 'border-sky-500/30', bar: 'bg-sky-400' },
+  },
 ]
 
 export function Sidebar() {
@@ -93,8 +100,12 @@ export function Sidebar() {
         <Logo collapsed={!expanded} />
       </div>
 
-      {/* Protection Toggle — hidden on llmGateway view (uses local guardrail controls) */}
-      {state.activeView !== 'llmGateway' && <ProtectionToggle collapsed={!expanded} />}
+      {/* Protection Toggle — hidden on views that own their AIRS switch
+          (llmGateway picks a guardrail per request; ministryHealth toggles
+          AIRS per scenario inside the pillar). */}
+      {state.activeView !== 'llmGateway' && state.activeView !== 'ministryHealth' && (
+        <ProtectionToggle collapsed={!expanded} />
+      )}
 
       {/* SCM Console link — appears after first scan */}
       <AnimatePresence>
