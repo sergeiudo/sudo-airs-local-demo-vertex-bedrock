@@ -1025,6 +1025,48 @@ function GovernanceTab({ theme }) {
 
 // ─── Shell ────────────────────────────────────────────────────────────────────
 
+/**
+ * Language switch for the whole pillar.
+ *
+ * BriutApp carries its own copy, but that one is styled white-on-teal for the
+ * dark chat header and only exists inside the chat — which left every other
+ * tab stuck at whatever language was already in localStorage, with no way to
+ * change it. This one lives on the tab bar, so it follows the app theme and is
+ * reachable from Overview, RAG, Agent, MCP, Matrix and Governance too.
+ */
+function PillarLangToggle({ theme }) {
+  const { lang, setLang } = useMohLang()
+  return (
+    <div
+      dir="ltr"
+      style={{
+        display: 'flex', borderRadius: 999, overflow: 'hidden',
+        border: `1px solid ${theme.border}`, background: theme.surfaceMuted,
+      }}
+    >
+      {[['he', 'עב'], ['en', 'EN']].map(([code, label]) => {
+        const on = lang === code
+        return (
+          <button
+            key={code}
+            onClick={() => setLang(code)}
+            aria-pressed={on}
+            title={code === 'he' ? 'עברית' : 'English'}
+            style={{
+              padding: '4px 12px', fontSize: 11, fontWeight: 800, border: 'none', cursor: 'pointer',
+              background: on ? ACCENT : 'transparent',
+              color: on ? '#ffffff' : theme.textMuted,
+              fontFamily: 'Heebo, Inter, sans-serif',
+            }}
+          >
+            {label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 function MinistryHealthInner() {
   const { state } = useAppContext()
   const isLight = !state.isDark
@@ -1048,33 +1090,40 @@ function MinistryHealthInner() {
         color: theme.text, minHeight: 0,
       }}
     >
+      {/* The tabs scroll on a narrow window; the language switch is pinned
+          outside that scroller so it never scrolls out of reach. */}
       <nav
         style={{
-          flexShrink: 0, display: 'flex', gap: 3, padding: '8px 14px 0',
-          borderBottom: `1px solid ${theme.border}`, background: theme.surface, overflowX: 'auto',
+          flexShrink: 0, display: 'flex', alignItems: 'stretch',
+          borderBottom: `1px solid ${theme.border}`, background: theme.surface,
         }}
       >
-        {TABS.map((tb) => {
-          const on = tab === tb.id
-          return (
-            <button
-              key={tb.id}
-              onClick={() => setTab(tb.id)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 7, padding: '9px 15px',
-                borderRadius: '10px 10px 0 0', border: 'none', cursor: 'pointer',
-                background: on ? `${ACCENT}16` : 'transparent',
-                color: on ? ACCENT : theme.textMuted,
-                fontSize: 12, fontWeight: on ? 800 : 600, whiteSpace: 'nowrap',
-                borderBottom: on ? `2px solid ${ACCENT}` : '2px solid transparent',
-                fontFamily: 'Heebo, Inter, sans-serif',
-              }}
-            >
-              <tb.icon size={14} />
-              {t(tb.key)}
-            </button>
-          )
-        })}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', gap: 3, padding: '8px 14px 0', overflowX: 'auto' }}>
+          {TABS.map((tb) => {
+            const on = tab === tb.id
+            return (
+              <button
+                key={tb.id}
+                onClick={() => setTab(tb.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 7, padding: '9px 15px',
+                  borderRadius: '10px 10px 0 0', border: 'none', cursor: 'pointer',
+                  background: on ? `${ACCENT}16` : 'transparent',
+                  color: on ? ACCENT : theme.textMuted,
+                  fontSize: 12, fontWeight: on ? 800 : 600, whiteSpace: 'nowrap',
+                  borderBottom: on ? `2px solid ${ACCENT}` : '2px solid transparent',
+                  fontFamily: 'Heebo, Inter, sans-serif',
+                }}
+              >
+                <tb.icon size={14} />
+                {t(tb.key)}
+              </button>
+            )
+          })}
+        </div>
+        <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', padding: '0 14px' }}>
+          <PillarLangToggle theme={theme} />
+        </div>
       </nav>
 
       {/* All tabs stay mounted so an in-flight or completed run survives a tab switch. */}
