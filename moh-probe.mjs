@@ -18,6 +18,9 @@ import 'dotenv/config'
 import { writeFileSync } from 'node:fs'
 import { PAIRS } from './moh-probe-pairs.js'
 
+// Minimum spacing between scans. Below ~2s AIRS starts skipping DLP silently.
+const SCAN_GAP_MS = Number(process.env.MOH_PROBE_GAP_MS) || 2200
+
 // ─── AIRS call ────────────────────────────────────────────────────────────────
 
 const BASE = process.env.AIRS_BASE_URL
@@ -64,17 +67,24 @@ const args = Object.fromEntries(
   })
 )
 
-async function pool(items, size, fn) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * Sequential with spacing — deliberately NOT concurrent.
+ *
+ * AIRS silently skips DLP evaluation when scans arrive faster than roughly one
+ * every two seconds: it returns dlp:false with timeout:false and error:false,
+ * so there is no failure signal and the run reports gaps that do not exist. An
+ * earlier 4-way concurrent version of this probe made six DLP categories look
+ * flaky; at this pacing they are deterministic. Slower, but the numbers are
+ * the whole point of the tool.
+ */
+async function pool(items, _size, fn, gapMs = SCAN_GAP_MS) {
   const out = []
-  let i = 0
-  await Promise.all(
-    Array.from({ length: Math.min(size, items.length) }, async () => {
-      while (i < items.length) {
-        const idx = i++
-        out[idx] = await fn(items[idx])
-      }
-    })
-  )
+  for (let i = 0; i < items.length; i++) {
+    out[i] = await fn(items[i])
+    if (i < items.length - 1) await sleep(gapMs)
+  }
   return out
 }
 
@@ -110,7 +120,9 @@ async function main() {
   const langs = args.lang ? [args.lang] : ['en', 'he']
 
   console.log(`\n${C.bold}Prisma AIRS — Hebrew vs English detection probe${C.reset}`)
-  console.log(`${C.dim}profile: ${PROFILE}   endpoint: ${BASE}   pairs: ${pairs.length}${C.reset}\n`)
+  const jobCount = pairs.length * langs.length
+  console.log(`${C.dim}profile: ${PROFILE}   endpoint: ${BASE}   pairs: ${pairs.length}${C.reset}`)
+  console.log(`${C.dim}${jobCount} scans, ${SCAN_GAP_MS}ms apart — about ${Math.ceil((jobCount * (SCAN_GAP_MS + 900)) / 60000)} min. Spacing is required: AIRS drops DLP under rapid calls.${C.reset}\n`)
 
   const jobs = []
   for (const p of pairs) for (const lang of langs) jobs.push({ p, lang })

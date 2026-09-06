@@ -190,7 +190,7 @@ function MohArchitectureDiagram() {
         border: '1px solid rgba(255,255,255,0.10)',
       }}
     >
-      <svg viewBox="0 0 1100 330" width="100%" preserveAspectRatio="xMidYMid meet" style={{ display: 'block', minWidth: 780 }}>
+      <svg viewBox="0 0 1240 330" width="100%" preserveAspectRatio="xMidYMid meet" style={{ display: 'block', minWidth: 860 }}>
         <defs>
           <radialGradient id="moh-appGlow" cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor={TEAL} stopOpacity="0.45" />
@@ -208,30 +208,30 @@ function MohArchitectureDiagram() {
         </defs>
 
         {/* column headers */}
-        <text x={520} y={26} textAnchor="middle" fontFamily={sans} fontSize={10} fontWeight={700} letterSpacing="1.2" fill={textSecondary}>
+        <text x={620} y={26} textAnchor="middle" fontFamily={sans} fontSize={10} fontWeight={700} letterSpacing="1.2" fill={textSecondary}>
           ENFORCEMENT
         </text>
-        <text x={710} y={26} textAnchor="middle" fontFamily={sans} fontSize={10} fontWeight={700} letterSpacing="1.2" fill={textSecondary}>
+        <text x={820} y={26} textAnchor="middle" fontFamily={sans} fontSize={10} fontWeight={700} letterSpacing="1.2" fill={textSecondary}>
           EXECUTION
         </text>
 
-        {/* ── connectors, drawn beneath the nodes ── */}
-        {/* citizen → app */}
-        <path d="M112,160 L146,160" fill="none" stroke={TEAL} strokeOpacity={0.55} strokeWidth={2} markerEnd="url(#moh-arrTeal)" />
-        {/* app → lane A / lane B fan-out */}
-        <path d={`M262,160 C330,160 320,${LANE_A} 366,${LANE_A}`} fill="none" stroke={TEAL} strokeOpacity={0.45} strokeWidth={2} strokeLinecap="round" />
-        <path d={`M262,160 C330,160 320,${LANE_B} 366,${LANE_B}`} fill="none" stroke={PURPLE} strokeOpacity={0.45} strokeWidth={2} strokeLinecap="round" />
+        {/* ── connectors, drawn beneath the nodes ──
+            The fan-out stops at x=336, short of the lane labels at x=350, so
+            the curve no longer runs through the text. */}
+        <path d="M112,160 L142,160" fill="none" stroke={TEAL} strokeOpacity={0.55} strokeWidth={2} markerEnd="url(#moh-arrTeal)" />
+        <path d={`M262,160 C300,160 300,${LANE_A} 336,${LANE_A}`} fill="none" stroke={TEAL} strokeOpacity={0.45} strokeWidth={2} strokeLinecap="round" />
+        <path d={`M262,160 C300,160 300,${LANE_B} 336,${LANE_B}`} fill="none" stroke={PURPLE} strokeOpacity={0.45} strokeWidth={2} strokeLinecap="round" />
 
-        {/* lane A: label → gateway → model → answer */}
-        <path d={`M436,${LANE_A} L446,${LANE_A}`} fill="none" stroke={TEAL} strokeOpacity={0.85} strokeWidth={2.4} markerEnd="url(#moh-arrTeal)" />
-        <path d={`M596,${LANE_A} L672,${LANE_A}`} fill="none" stroke={TEAL} strokeOpacity={0.9} strokeWidth={2.4} markerEnd="url(#moh-arrTeal)" />
-        <path d={`M812,${LANE_A} L950,${LANE_A}`} fill="none" stroke={TEAL} strokeOpacity={0.9} strokeWidth={2.4} markerEnd="url(#moh-arrTeal)" />
+        {/* lane A: label → gateway → bedrock → answer */}
+        <path d={`M508,${LANE_A} L540,${LANE_A}`} fill="none" stroke={TEAL} strokeOpacity={0.85} strokeWidth={2.4} markerEnd="url(#moh-arrTeal)" />
+        <path d={`M695,${LANE_A} L765,${LANE_A}`} fill="none" stroke={TEAL} strokeOpacity={0.9} strokeWidth={2.4} markerEnd="url(#moh-arrTeal)" />
+        <path d={`M910,${LANE_A} L1091,${LANE_A}`} fill="none" stroke={TEAL} strokeOpacity={0.9} strokeWidth={2.4} markerEnd="url(#moh-arrTeal)" />
 
         {/* lane B: label → stage1 → services → stage2 → answer */}
-        <path d={`M436,${LANE_B} L446,${LANE_B}`} fill="none" stroke={PURPLE} strokeOpacity={0.85} strokeWidth={2.4} markerEnd="url(#moh-arrPurple)" />
-        <path d={`M565,${LANE_B} L602,${LANE_B}`} fill="none" stroke={PURPLE} strokeOpacity={0.9} strokeWidth={2.4} markerEnd="url(#moh-arrPurple)" />
-        <path d={`M746,${LANE_B} L783,${LANE_B}`} fill="none" stroke={PURPLE} strokeOpacity={0.9} strokeWidth={2.4} markerEnd="url(#moh-arrPurple)" />
-        <path d={`M917,${LANE_B} L950,${LANE_B}`} fill="none" stroke={PURPLE} strokeOpacity={0.9} strokeWidth={2.4} markerEnd="url(#moh-arrPurple)" />
+        <path d={`M508,${LANE_B} L530,${LANE_B}`} fill="none" stroke={PURPLE} strokeOpacity={0.85} strokeWidth={2.4} markerEnd="url(#moh-arrPurple)" />
+        <path d={`M665,${LANE_B} L715,${LANE_B}`} fill="none" stroke={PURPLE} strokeOpacity={0.9} strokeWidth={2.4} markerEnd="url(#moh-arrPurple)" />
+        <path d={`M860,${LANE_B} L905,${LANE_B}`} fill="none" stroke={PURPLE} strokeOpacity={0.9} strokeWidth={2.4} markerEnd="url(#moh-arrPurple)" />
+        <path d={`M1040,${LANE_B} L1091,${LANE_B}`} fill="none" stroke={PURPLE} strokeOpacity={0.9} strokeWidth={2.4} markerEnd="url(#moh-arrPurple)" />
 
         {/* ── citizen ── */}
         <Node cx={62} cy={160} w={100} h={40} label="CITIZEN" sub="he · en" />
@@ -243,39 +243,39 @@ function MohArchitectureDiagram() {
         <text x={202} y={157} textAnchor="middle" fontFamily={mono} fontSize={11} fontWeight={800} fill={textPrimary}>Briut.AI</text>
         <text x={202} y={171} textAnchor="middle" fontFamily={sans} fontSize={8.5} fill={textSecondary} direction="rtl">בריאות</text>
 
-        {/* ── lane labels ── */}
-        <text x={288} y={LANE_A - 3} fontFamily={sans} fontSize={11} fontWeight={700} fill={textPrimary}>
+        {/* ── lane labels — sit in the clear gap between fan-out and first box ── */}
+        <text x={350} y={LANE_A - 3} fontFamily={sans} fontSize={11} fontWeight={700} fill={textPrimary}>
           <tspan fill={TEAL} fontWeight={800}>1.</tspan> MODEL TURN
         </text>
-        <text x={302} y={LANE_A + 11} fontFamily={sans} fontSize={8.5} letterSpacing="0.3" fill={textSecondary}>
-          (every prompt &amp; response)
+        <text x={364} y={LANE_A + 11} fontFamily={sans} fontSize={8.5} letterSpacing="0.3" fill={textSecondary}>
+          every prompt &amp; response
         </text>
 
-        <text x={288} y={LANE_B - 3} fontFamily={sans} fontSize={11} fontWeight={700} fill={textPrimary}>
+        <text x={350} y={LANE_B - 3} fontFamily={sans} fontSize={11} fontWeight={700} fill={textPrimary}>
           <tspan fill={PURPLE} fontWeight={800}>2.</tspan> TOOL CALL
         </text>
-        <text x={302} y={LANE_B + 11} fontFamily={sans} fontSize={8.5} letterSpacing="0.3" fill={textSecondary}>
-          (agent actions)
+        <text x={364} y={LANE_B + 11} fontFamily={sans} fontSize={8.5} letterSpacing="0.3" fill={textSecondary}>
+          agent actions
         </text>
 
         {/* ── lane A nodes ── */}
-        <Node cx={520} cy={LANE_A} w={150} h={48} label="SCM AI-GW" sub="+ AIRS guardrail" color={TEAL} fontSize={11} />
-        <AirsDot x={588} y={LANE_A - 17} />
-        <Node cx={742} cy={LANE_A} w={140} h={42} label="BEDROCK" sub="Claude" color={AMBER} />
-        <Node cx={1010} cy={LANE_A} w={108} h={38} label="ANSWER" fill={boxFill} stroke={boxStroke} fontSize={10.5} />
+        <Node cx={620} cy={LANE_A} w={150} h={48} label="SCM AI-GW" sub="+ AIRS guardrail" color={TEAL} fontSize={11} />
+        <AirsDot x={688} y={LANE_A - 17} />
+        <Node cx={838} cy={LANE_A} w={140} h={42} label="BEDROCK" sub="Claude" color={AMBER} />
+        <Node cx={1148} cy={LANE_A} w={108} h={38} label="ANSWER" fill={boxFill} stroke={boxStroke} fontSize={10.5} />
 
         {/* ── lane B nodes ── */}
-        <Node cx={500} cy={LANE_B} w={130} h={46} label="AIRS · stage 1" sub="parameters" color={PURPLE} />
-        <AirsDot x={556} y={LANE_B - 16} />
-        <Node cx={676} cy={LANE_B} w={140} h={48} label="HEALTH SERVICES" sub="records · appts · labs" color={SKY} fontSize={9.5} />
-        <Node cx={852} cy={LANE_B} w={130} h={46} label="AIRS · stage 2" sub="output" color={PURPLE} />
-        <AirsDot x={908} y={LANE_B - 16} />
-        <Node cx={1010} cy={LANE_B} w={108} h={38} label="ANSWER" fill={boxFill} stroke={boxStroke} fontSize={10.5} />
+        <Node cx={600} cy={LANE_B} w={130} h={46} label="AIRS · stage 1" sub="parameters" color={PURPLE} />
+        <AirsDot x={656} y={LANE_B - 16} />
+        <Node cx={790} cy={LANE_B} w={140} h={48} label="HEALTH SERVICES" sub="records · appts · labs" color={SKY} fontSize={9.5} />
+        <Node cx={975} cy={LANE_B} w={130} h={46} label="AIRS · stage 2" sub="output" color={PURPLE} />
+        <AirsDot x={1031} y={LANE_B - 16} />
+        <Node cx={1148} cy={LANE_B} w={108} h={38} label="ANSWER" fill={boxFill} stroke={boxStroke} fontSize={10.5} />
 
         {/* ── shared policy pill ── */}
-        <rect x={352} y={296} width={396} height={24} rx={7} fill={AMBER} fillOpacity={0.10} stroke={AMBER} strokeOpacity={0.45} strokeWidth={1} />
-        <circle cx={370} cy={308} r={3.5} fill={AMBER} />
-        <text x={384} y={312} fontFamily={mono} fontSize={9.5} fontWeight={700} fill={AMBER}>
+        <rect x={422} y={296} width={396} height={24} rx={7} fill={AMBER} fillOpacity={0.10} stroke={AMBER} strokeOpacity={0.45} strokeWidth={1} />
+        <circle cx={440} cy={308} r={3.5} fill={AMBER} />
+        <text x={454} y={312} fontFamily={mono} fontSize={9.5} fontWeight={700} fill={AMBER}>
           ONE AIRS PROFILE · sudo-airs-api-profile-new
         </text>
       </svg>

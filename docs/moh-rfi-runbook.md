@@ -114,11 +114,13 @@ gateway guardrail, same AIRS profile.
 ### 5 · Hebrew vs English, measured (1.5 min)
 Pillar → **מטריצת זיהוי** → **הרצת המטריצה**. Runs live against AIRS.
 
-Expect roughly **EN 16/19 · HE 14/19, zero false positives** on benign controls. Re-run `node moh-probe.mjs` after the DLP rule changes — those numbers predate them.
+Measured after the DLP rule fix: **EN 17/19 (89%) · HE 15/19 (79%), zero false positives** on benign controls, ~710ms per scan.
 
 Do not oversell this slide — its credibility is the point:
 - Hebrew genuinely works for injection, jailbreak, indirect injection, toxic content, self-harm, RCE, base64 and the bidi/zero-width evasions.
-- Coverage is **asymmetric**, not simply weaker: one payload is caught in Hebrew and missed in English.
+- Coverage is **asymmetric**, not simply weaker: privilege escalation is caught in Hebrew and missed in English.
+- Three attacks block in English but pass in Hebrew: role-play admin override, PHI exfiltration, prescription forgery.
+- **Israeli ת.ז. + מספר מבוטח now block in both languages** — this was the payload that failed before the rule was fixed.
 - **Israeli ת.ז. IS detected** — PA ships a `National ID – Israel` data pattern, and `Healthcare Provider – IL` too. Getting it working needed the DLP rule set to OR (an AND across 14 conditions never matches) and the confidence lowered to Low (High wants ~3 matches, so a single pasted ID passes).
 - The honest language gap is elsewhere: **`Health – Generic` and `Healthcare Provider – IL` fire on English but not Hebrew.** Identical clinical text passes in Hebrew. That is the credible finding to raise — not a missing Israeli detector.
 
