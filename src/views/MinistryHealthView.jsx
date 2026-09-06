@@ -173,6 +173,24 @@ function MohArchitectureDiagram() {
     </g>
   )
 
+  /** The numbered block that opens each lane. Framed like every other node —
+      as bare text it read as a rendering failure, because the lane began with
+      an unterminated curve and floating words where a box was clearly meant. */
+  const StepNode = ({ cx, cy, w, h, num, label, sub, color }) => (
+    <g>
+      <rect
+        x={cx - w / 2} y={cy - h / 2} width={w} height={h} rx={9}
+        fill={color} fillOpacity={0.12} stroke={color} strokeOpacity={0.65} strokeWidth={1.25}
+      />
+      <text x={cx} y={cy - 2} textAnchor="middle" fontFamily={sans} fontSize={11} fontWeight={700} fill={textPrimary}>
+        <tspan fill={color} fontWeight={800}>{num}</tspan> {label}
+      </text>
+      <text x={cx} y={cy + 12} textAnchor="middle" fontFamily={sans} fontSize={8.5} fill={textSecondary}>
+        {sub}
+      </text>
+    </g>
+  )
+
   /** Small amber dot marking a node as an AIRS enforcement point. */
   const AirsDot = ({ x, y }) => (
     <g>
@@ -190,7 +208,7 @@ function MohArchitectureDiagram() {
         border: '1px solid rgba(255,255,255,0.10)',
       }}
     >
-      <svg viewBox="0 0 1240 330" width="100%" preserveAspectRatio="xMidYMid meet" style={{ display: 'block', minWidth: 860 }}>
+      <svg viewBox="0 0 1240 400" width="100%" preserveAspectRatio="xMidYMid meet" style={{ display: 'block', minWidth: 860 }}>
         <defs>
           <radialGradient id="moh-appGlow" cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor={TEAL} stopOpacity="0.45" />
@@ -216,11 +234,11 @@ function MohArchitectureDiagram() {
         </text>
 
         {/* ── connectors, drawn beneath the nodes ──
-            The fan-out stops at x=336, short of the lane labels at x=350, so
-            the curve no longer runs through the text. */}
+            The fan-out now lands ON the step block with an arrowhead, instead
+            of trailing off into open space beside a floating label. */}
         <path d="M112,160 L142,160" fill="none" stroke={TEAL} strokeOpacity={0.55} strokeWidth={2} markerEnd="url(#moh-arrTeal)" />
-        <path d={`M262,160 C300,160 300,${LANE_A} 336,${LANE_A}`} fill="none" stroke={TEAL} strokeOpacity={0.45} strokeWidth={2} strokeLinecap="round" />
-        <path d={`M262,160 C300,160 300,${LANE_B} 336,${LANE_B}`} fill="none" stroke={PURPLE} strokeOpacity={0.45} strokeWidth={2} strokeLinecap="round" />
+        <path d={`M262,160 C300,160 300,${LANE_A} 340,${LANE_A}`} fill="none" stroke={TEAL} strokeOpacity={0.55} strokeWidth={2} strokeLinecap="round" markerEnd="url(#moh-arrTeal)" />
+        <path d={`M262,160 C300,160 300,${LANE_B} 340,${LANE_B}`} fill="none" stroke={PURPLE} strokeOpacity={0.55} strokeWidth={2} strokeLinecap="round" markerEnd="url(#moh-arrPurple)" />
 
         {/* lane A: label → gateway → bedrock → answer */}
         <path d={`M508,${LANE_A} L540,${LANE_A}`} fill="none" stroke={TEAL} strokeOpacity={0.85} strokeWidth={2.4} markerEnd="url(#moh-arrTeal)" />
@@ -243,20 +261,10 @@ function MohArchitectureDiagram() {
         <text x={202} y={157} textAnchor="middle" fontFamily={mono} fontSize={11} fontWeight={800} fill={textPrimary}>Briut.AI</text>
         <text x={202} y={171} textAnchor="middle" fontFamily={sans} fontSize={8.5} fill={textSecondary} direction="rtl">בריאות</text>
 
-        {/* ── lane labels — sit in the clear gap between fan-out and first box ── */}
-        <text x={350} y={LANE_A - 3} fontFamily={sans} fontSize={11} fontWeight={700} fill={textPrimary}>
-          <tspan fill={TEAL} fontWeight={800}>1.</tspan> MODEL TURN
-        </text>
-        <text x={364} y={LANE_A + 11} fontFamily={sans} fontSize={8.5} letterSpacing="0.3" fill={textSecondary}>
-          every prompt &amp; response
-        </text>
-
-        <text x={350} y={LANE_B - 3} fontFamily={sans} fontSize={11} fontWeight={700} fill={textPrimary}>
-          <tspan fill={PURPLE} fontWeight={800}>2.</tspan> TOOL CALL
-        </text>
-        <text x={364} y={LANE_B + 11} fontFamily={sans} fontSize={8.5} letterSpacing="0.3" fill={textSecondary}>
-          agent actions
-        </text>
+        {/* ── lane openers — framed, filling the 348–500 gap the outbound
+              arrows at x=508 already leave for them ── */}
+        <StepNode cx={424} cy={LANE_A} w={152} h={48} num="1." label="MODEL TURN" sub={'every prompt & response'} color={TEAL} />
+        <StepNode cx={424} cy={LANE_B} w={152} h={48} num="2." label="TOOL CALL" sub="agent actions" color={PURPLE} />
 
         {/* ── lane A nodes ── */}
         <Node cx={620} cy={LANE_A} w={150} h={48} label="SCM AI-GW" sub="+ AIRS guardrail" color={TEAL} fontSize={11} />
@@ -272,11 +280,38 @@ function MohArchitectureDiagram() {
         <AirsDot x={1031} y={LANE_B - 16} />
         <Node cx={1148} cy={LANE_B} w={108} h={38} label="ANSWER" fill={boxFill} stroke={boxStroke} fontSize={10.5} />
 
+        {/* What each enforcement point actually inspects. Without this the
+            boxes are just names, and the audience has to be told out loud. */}
+        <text x={620} y={128} textAnchor="middle" fontFamily={sans} fontSize={9} fill={textSecondary}>
+          inspects every prompt and every response
+        </text>
+        <text x={620} y={141} textAnchor="middle" fontFamily={mono} fontSize={8.5} fill={TEAL} fillOpacity={0.85}>
+          injection · PII / DLP · toxic · malicious URL
+        </text>
+
+        <text x={600} y={277} textAnchor="middle" fontFamily={sans} fontSize={9} fill={textSecondary}>
+          tool parameters — before anything runs
+        </text>
+        <text x={975} y={277} textAnchor="middle" fontFamily={sans} fontSize={9} fill={textSecondary}>
+          tool output — before the model sees it
+        </text>
+        <text x={790} y={277} textAnchor="middle" fontFamily={sans} fontSize={9} fill={textSecondary}>
+          patient records · appointments · lab results
+        </text>
+
         {/* ── shared policy pill ── */}
-        <rect x={422} y={296} width={396} height={24} rx={7} fill={AMBER} fillOpacity={0.10} stroke={AMBER} strokeOpacity={0.45} strokeWidth={1} />
-        <circle cx={440} cy={308} r={3.5} fill={AMBER} />
-        <text x={454} y={312} fontFamily={mono} fontSize={9.5} fontWeight={700} fill={AMBER}>
+        <rect x={422} y={330} width={396} height={24} rx={7} fill={AMBER} fillOpacity={0.10} stroke={AMBER} strokeOpacity={0.45} strokeWidth={1} />
+        <circle cx={440} cy={342} r={3.5} fill={AMBER} />
+        <text x={454} y={346} fontFamily={mono} fontSize={9.5} fontWeight={700} fill={AMBER}>
           ONE AIRS PROFILE · sudo-airs-api-profile-new
+        </text>
+
+        {/* Legend — says what the amber dot means and what a block does, so the
+            diagram stands on its own if someone photographs it. */}
+        <circle cx={432} cy={378} r={3.5} fill={AMBER} fillOpacity={0.9} />
+        <circle cx={432} cy={378} r={6.5} fill={AMBER} fillOpacity={0.18} />
+        <text x={446} y={382} fontFamily={sans} fontSize={9} fill={textSecondary}>
+          AIRS enforcement point — a failed verdict stops the request here. It never reaches the next box.
         </text>
       </svg>
 
@@ -726,6 +761,37 @@ function ScenarioTab({ familyId, theme, showCorpus, corpusSignal }) {
 
 // ─── Detection matrix ─────────────────────────────────────────────────────────
 
+const MATRIX_LANGS = ['en', 'he']
+// One batch = 4 pairs = 8 scans, which the route's pool of 4 clears in ~5s.
+// Small enough that no single request can hit an Nginx/proxy read timeout.
+const MATRIX_BATCH = 4
+
+// The run is batched now, so the server can only summarise the slice it was
+// handed. Totals are recomputed here over everything accumulated so far —
+// same arithmetic as the /matrix route, applied to the running set.
+function matrixSummary(rows) {
+  const attacks = rows.filter((r) => r.expect === 'block')
+  const controls = rows.filter((r) => r.expect === 'allow')
+  return Object.fromEntries(
+    MATRIX_LANGS.map((l) => [
+      l,
+      {
+        detected: attacks.filter((r) => r.results?.[l]?.action === 'block').length,
+        of: attacks.length,
+        falsePositives: controls.filter((r) => r.results?.[l]?.action === 'block').length,
+        controls: controls.length,
+      },
+    ])
+  )
+}
+
+// Blocked in English, allowed in Hebrew — the coverage question for the RFI.
+function matrixGaps(rows) {
+  return rows
+    .filter((r) => r.expect === 'block' && r.results?.en?.action === 'block' && r.results?.he?.action !== 'block')
+    .map((r) => r.id)
+}
+
 function MatrixTab({ theme }) {
   const { t } = useMohLang()
   const [rows, setRows] = useState(null)
@@ -733,25 +799,60 @@ function MatrixTab({ theme }) {
   const [gaps, setGaps] = useState([])
   const [running, setRunning] = useState(false)
   const [error, setError] = useState(null)
+  const [progress, setProgress] = useState(null)
 
+  // This was one blocking POST covering all 21 pairs — ~25s locally and longer
+  // through Nginx on EC2, where it surfaced as a bare "Failed to fetch" with
+  // nothing rendered and no clue why. It now walks the pairs in small batches
+  // through the `ids` parameter the route already accepts: no request runs more
+  // than a few seconds, the table fills in as results land, and a failure keeps
+  // whatever has already been measured instead of discarding the whole run.
   const run = async () => {
     setRunning(true)
     setError(null)
+    setRows(null)
+    setSummary(null)
+    setGaps([])
     try {
-      const r = await fetch('/api/moh/matrix', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ langs: ['en', 'he'] }),
-      })
-      const d = await r.json()
-      if (d.error) { setError(d.error); return }
-      setRows(d.rows)
-      setSummary(d.summary)
-      setGaps(d.gaps || [])
+      const pl = await fetch('/api/moh/matrix/pairs').then((r) => r.json())
+      const ids = (pl.pairs || []).map((p) => p.id)
+      if (!ids.length) throw new Error('No probe pairs returned by /api/moh/matrix/pairs')
+      setProgress({ done: 0, total: ids.length })
+
+      const acc = []
+      for (let i = 0; i < ids.length; i += MATRIX_BATCH) {
+        const ctl = new AbortController()
+        const timer = setTimeout(() => ctl.abort(), 60000)
+        let d
+        try {
+          const r = await fetch('/api/moh/matrix', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: ids.slice(i, i + MATRIX_BATCH), langs: MATRIX_LANGS }),
+            signal: ctl.signal,
+          })
+          if (!r.ok) throw new Error(`AIRS matrix request failed — HTTP ${r.status}`)
+          d = await r.json()
+        } finally {
+          clearTimeout(timer)
+        }
+        if (d.error) throw new Error(d.error)
+
+        acc.push(...(d.rows || []))
+        setRows([...acc])
+        setSummary(matrixSummary(acc))
+        setGaps(matrixGaps(acc))
+        setProgress({ done: Math.min(i + MATRIX_BATCH, ids.length), total: ids.length })
+      }
     } catch (e) {
-      setError(String(e?.message || e))
+      setError(
+        e?.name === 'AbortError'
+          ? 'A batch timed out after 60s — AIRS did not respond. Check /api/moh/health.'
+          : String(e?.message || e)
+      )
     } finally {
       setRunning(false)
+      setProgress(null)
     }
   }
 
@@ -792,7 +893,9 @@ function MatrixTab({ theme }) {
             }}
           >
             {running ? <RefreshCw size={14} className="animate-spin" /> : <Play size={14} />}
-            {running ? t('matrix.running') : t('matrix.run')}
+            {running
+              ? `${t('matrix.running')}${progress ? ` · ${progress.done}/${progress.total}` : ''}`
+              : t('matrix.run')}
           </button>
         </div>
 
