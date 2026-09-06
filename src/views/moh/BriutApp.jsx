@@ -842,7 +842,9 @@ function Row({ label, value, theme, mono }) {
 
 function DemoDrawer({ open, onClose, theme, onRun, busy, protectionOn, onToggleProtection, onReset, canCompareLanes }) {
   const { t, pick, lang } = useMohLang()
-  const [openFamily, setOpenFamily] = useState('runtime')
+  // All groups collapsed on open — with five families the drawer was a wall
+  // of scenarios, and the operator usually knows which beat they are running.
+  const [openFamily, setOpenFamily] = useState(null)
   // With a workspace-wide guardrail this switch no longer gates chat traffic —
   // it only gates the direct tool_event scans. Say so rather than implying more.
   const toggleLabel = canCompareLanes ? t('protection.label') : t('protection.toolScanLabel')
@@ -983,20 +985,37 @@ function BriutAppInner({ embedded = false }) {
     fetch('/api/moh/health').then((r) => r.json()).then(setHealth).catch(() => {})
   }, [])
 
-  // Auto-scroll. 'smooth' fired per token queued ~150 overlapping animations
-  // and made the pane judder. Jump instantly while streaming, and leave the
-  // user alone if they have scrolled up to read something.
-  useEffect(() => {
+  // Auto-scroll.
+  //
+  // Stickiness has to be recorded from real scroll events, not measured after
+  // the render. Checking `scrollHeight - scrollTop - clientHeight` inside the
+  // effect reads the geometry *after* React appended the new content, so any
+  // tall message — a blocked card, a long answer — instantly looks "far from
+  // the bottom" and the scroll is skipped. That is why the last response was
+  // being left off-screen.
+  //
+  // Instead: a scroll listener keeps the flag current, so it reflects where the
+  // user was before the content grew. Scrolling up to read turns it off;
+  // returning to the bottom, or starting a new turn, turns it back on.
+  const stickRef = useRef(true)
+
+  const onScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160
-    if (!nearBottom) return
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120
+  }, [])
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el || !stickRef.current) return
+    // Instant while streaming — 'smooth' would queue an animation per flush.
     el.scrollTo({ top: el.scrollHeight, behavior: busy ? 'auto' : 'smooth' })
   }, [messages, busy])
 
   const runAttack = useCallback(
     (attack) => {
       setDrawerOpen(false)
+      stickRef.current = true
       runScenario(attack, { model, lang, airsEnabled: protectionOn })
     },
     [runScenario, model, lang, protectionOn]
@@ -1057,7 +1076,7 @@ function BriutAppInner({ embedded = false }) {
         </div>
       )}
 
-      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '20px 18px', minHeight: 0 }}>
+      <div ref={scrollRef} onScroll={onScroll} style={{ flex: 1, overflowY: 'auto', padding: '20px 18px', minHeight: 0 }}>
         <div style={{ maxWidth: 860, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 18 }}>
           {messages.length === 0 && (
             <motion.div
@@ -1091,7 +1110,10 @@ function BriutAppInner({ embedded = false }) {
         theme={theme}
         busy={busy}
         onClear={clear}
-        onSend={(text) => send({ prompt: text, model, lang, airsEnabled: protectionOn, family: 'runtime' })}
+        onSend={(text) => {
+          stickRef.current = true
+          send({ prompt: text, model, lang, airsEnabled: protectionOn, family: 'runtime' })
+        }}
       />
 
       <SecurityConsole open={consoleOpen} onClose={() => setConsoleOpen(false)} msg={lastAssistant} theme={theme} />
